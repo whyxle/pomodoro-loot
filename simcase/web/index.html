@@ -245,6 +245,20 @@
         <label>Удача каждые N сессий <input id="set-chain-luck-every" type="number" min="1" max="12"></label>
         <label>Макс. удача <input id="set-chain-max-luck" type="number" min="1" max="10"></label>
       </div>
+      <h4>Анти-фарм</h4>
+      <small>Цепные бонусы ограничены за день, короткие сессии после лимита ослабляются, а длинные блоки получают отдельный бонус.</small>
+      <div class="row" style="margin-top:8px">
+        <label>Дневной cap цепных роллов <input id="set-chain-daily-cap" type="number" min="0" max="50"></label>
+        <label>Короткая сессия, мин <input id="set-chain-short-minutes" type="number" min="0" max="60"></label>
+        <label>Коротких без штрафа <input id="set-chain-short-limit" type="number" min="0" max="30"></label>
+        <label>Множитель после лимита <input id="set-chain-short-decay" type="number" min="0" max="1" step="0.05"></label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label>Длинный блок, мин <input id="set-chain-long-minutes" type="number" min="1" max="180"></label>
+        <label>Бонус длинного блока <input id="set-chain-long-bonus" type="number" min="0" max="10"></label>
+        <label>Глубокий блок, мин <input id="set-chain-deep-minutes" type="number" min="1" max="180"></label>
+        <label>Бонус глубокого блока <input id="set-chain-deep-bonus" type="number" min="0" max="20"></label>
+      </div>
       <h4>Появление предметов</h4>
       <div class="row">
         <label><input id="set-appearance-effect-enabled" type="checkbox"> Эффект появления карточек</label>

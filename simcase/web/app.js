@@ -354,8 +354,11 @@ function renderFocus() {
     const nextCount = Number(chain.next_count || 1);
     const bonusRolls = Number(chain.next_bonus_rolls || 0);
     const luckRolls = Number(chain.next_luck_rolls || 1);
+    const dailyCap = Number(chain.daily_bonus_roll_cap || 0);
+    const dailyLeft = Number(chain.daily_bonus_rolls_left || 0);
+    const capLabel = dailyCap > 0 ? ` · лимит ${dailyLeft}/${dailyCap}` : '';
     chainCountEl.textContent = `x${currentChain}`;
-    chainNextEl.textContent = `#${nextCount}: +${bonusRolls} ролл. · удача x${luckRolls}`;
+    chainNextEl.textContent = `#${nextCount}: +${bonusRolls} ролл. · удача x${luckRolls}${capLabel}`;
     if (session && chain.continues) {
       chainMetaEl.textContent = 'Эта сессия уже удерживает цепочку. Награда усилится после завершения.';
     } else if (currentChain > 0 && Number(chain.seconds_left || 0) > 0) {
@@ -628,6 +631,14 @@ function renderSettings() {
   document.getElementById('set-chain-max-bonus').value = focusChain.max_bonus_rolls ?? 5;
   document.getElementById('set-chain-luck-every').value = focusChain.luck_roll_every ?? 3;
   document.getElementById('set-chain-max-luck').value = focusChain.max_luck_rolls ?? 5;
+  document.getElementById('set-chain-daily-cap').value = focusChain.daily_chain_bonus_roll_cap ?? 8;
+  document.getElementById('set-chain-short-minutes').value = focusChain.short_session_minutes ?? 15;
+  document.getElementById('set-chain-short-limit').value = focusChain.short_session_daily_limit ?? 3;
+  document.getElementById('set-chain-short-decay').value = focusChain.short_session_decay ?? 0.5;
+  document.getElementById('set-chain-long-minutes').value = focusChain.long_session_minutes ?? 45;
+  document.getElementById('set-chain-long-bonus').value = focusChain.long_session_bonus_rolls ?? 1;
+  document.getElementById('set-chain-deep-minutes').value = focusChain.deep_session_minutes ?? 90;
+  document.getElementById('set-chain-deep-bonus').value = focusChain.deep_session_bonus_rolls ?? 2;
   const dropVisuals = s.drop_visuals || {};
   document.getElementById('set-appearance-effect-enabled').checked = dropVisuals.appearance_effect_enabled !== false;
   document.getElementById('set-spawn-cooldown').value = Number.isFinite(dropVisuals.spawn_cooldown_ms) ? dropVisuals.spawn_cooldown_ms : 70;
@@ -1013,11 +1024,17 @@ function renderFocusRewardSummary(res, drops) {
   const session = reward.session || {};
   const quests = reward.claimed_quests || [];
   const chain = reward.chain || {};
+  const antiFarm = reward.anti_farm || {};
   const notes = [];
   if (quests.length) notes.push(`цели дня: ${quests.length}`);
   if (reward.long_break_suggested) notes.push('длинный перерыв');
   if (chain.count > 1) notes.push(`цепочка x${Number(chain.count)}`);
   if (chain.bonus_rolls > 0) notes.push(`цепь +${Number(chain.bonus_rolls)} ролл.`);
+  if (antiFarm.length_bonus_rolls > 0) notes.push(`длина +${Number(antiFarm.length_bonus_rolls)} ролл.`);
+  if (antiFarm.daily_cap_hit) notes.push('дневной лимит цепи');
+  if (antiFarm.short_session && Number(antiFarm.short_session_multiplier || 1) < 1) {
+    notes.push(`короткая x${Number(antiFarm.short_session_multiplier).toFixed(2)}`);
+  }
   if (reward.reward_luck_rolls > 1) notes.push(`удача x${reward.reward_luck_rolls}`);
   const summaryEl = document.getElementById('open-summary');
   if (summaryEl) {
@@ -1389,6 +1406,14 @@ async function saveSettings() {
       max_bonus_rolls: parseInt(document.getElementById('set-chain-max-bonus').value || '5', 10),
       luck_roll_every: parseInt(document.getElementById('set-chain-luck-every').value || '3', 10),
       max_luck_rolls: parseInt(document.getElementById('set-chain-max-luck').value || '5', 10),
+      daily_chain_bonus_roll_cap: parseInt(document.getElementById('set-chain-daily-cap').value || '8', 10),
+      short_session_minutes: parseInt(document.getElementById('set-chain-short-minutes').value || '15', 10),
+      short_session_daily_limit: parseInt(document.getElementById('set-chain-short-limit').value || '3', 10),
+      short_session_decay: parseFloat(document.getElementById('set-chain-short-decay').value || '0.5'),
+      long_session_minutes: parseInt(document.getElementById('set-chain-long-minutes').value || '45', 10),
+      long_session_bonus_rolls: parseInt(document.getElementById('set-chain-long-bonus').value || '1', 10),
+      deep_session_minutes: parseInt(document.getElementById('set-chain-deep-minutes').value || '90', 10),
+      deep_session_bonus_rolls: parseInt(document.getElementById('set-chain-deep-bonus').value || '2', 10),
     },
   });
 }
