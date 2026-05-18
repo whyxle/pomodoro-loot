@@ -82,6 +82,8 @@ DAILY_FOCUS_QUESTS = (
     },
 )
 
+CANCEL_CHAIN_GRACE_SECONDS = 120
+
 
 class CaseSimulator:
     """Stateful application service that orchestrates the simulator."""
@@ -937,17 +939,27 @@ class CaseSimulator:
         if not active or active.get("id") != session_id:
             return {"ok": False, "message": "Активная сессия не найдена"}
 
+        now = int(self._time_provider())
+        started_at = int(
+            max(0, self._sanitize_positive_float(active.get("started_at", now), now))
+        )
+        elapsed_seconds = max(0, now - started_at)
+        chain_preserved = elapsed_seconds < CANCEL_CHAIN_GRACE_SECONDS
+
         focus["active_session"] = None
-        focus["focus_streak"] = 0
-        focus["chain_started_at"] = 0
-        focus["last_completed_at"] = 0
+        if not chain_preserved:
+            focus["focus_streak"] = 0
+            focus["chain_started_at"] = 0
+            focus["last_completed_at"] = 0
         self._append_history(
             "cancel_focus_session",
             {
                 "id": active.get("id"),
                 "task_title": active.get("task_title", ""),
                 "duration_minutes": active.get("duration_minutes", 0),
-                "cancelled_at": int(self._time_provider()),
+                "cancelled_at": now,
+                "elapsed_seconds": elapsed_seconds,
+                "chain_preserved": chain_preserved,
             },
         )
         self.save()
