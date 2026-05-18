@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>Pomodoro Loot</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <strong>Pomodoro Loot</strong>
+    <small>Фокус-сессии, лут и коллекции без привязки к сеттингу</small>
+  </div>
+  <div class="header-actions">
+    <button class="ghost" onclick="toggleTheme()">Сменить тему</button>
+    <div id="status" class="status-pill"></div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="tabs">
+    <button class="active" data-tab-target="open" aria-pressed="true" onclick="tab('open')">Фокус</button>
+    <button data-tab-target="collection" aria-pressed="false" onclick="tab('collection')">Коллекция</button>
+    <button data-tab-target="inventory" aria-pressed="false" onclick="tab('inventory')">Инвентарь</button>
+    <button data-tab-target="items" aria-pressed="false" onclick="tab('items')">Предметы</button>
+    <button data-tab-target="rarities" aria-pressed="false" onclick="tab('rarities')">Редкости</button>
+    <button data-tab-target="presets" aria-pressed="false" onclick="tab('presets')">Пресеты</button>
+    <button data-tab-target="settings" aria-pressed="false" onclick="tab('settings')">Настройки</button>
+  </div>
+
+  <div id="open-layout" class="home-grid">
+    <section id="tab-open" class="open-stage">
+      <div class="stage-topline">
+        <div>
+          <h1>Фокус-сессия</h1>
+          <small>Запускайте честный таймер, а лут забирайте только после завершения учебного отрезка.</small>
+        </div>
+        <div class="stage-badge" id="open-summary">Готово к фокусу</div>
+      </div>
+
+      <div class="focus-controls">
+        <label class="field task-field">
+          <span>Задача</span>
+          <input id="focus-task" placeholder="Например: конспект по алгоритмам">
+        </label>
+        <label class="field compact-field">
+          <span>Минут</span>
+          <input id="focus-duration" type="number" min="1" max="180" value="25">
+        </label>
+        <button class="primary open-button" id="focus-start" onclick="startFocusSession()">Старт</button>
+        <button class="danger" id="focus-cancel" onclick="cancelFocusSession()" disabled>Отменить</button>
+        <button class="primary" id="focus-complete" onclick="completeFocusSession()" disabled>Забрать награду</button>
+      </div>
+
+      <div class="focus-timer-panel">
+        <div>
+          <small id="focus-status">Сессия не активна</small>
+          <strong id="focus-time">25:00</strong>
+        </div>
+        <div class="focus-ring"><div id="focus-ring-fill"></div></div>
+      </div>
+
+      <div id="open-results" class="open-results">
+        <div class="empty-drop">
+          <strong>Здесь появится награда за фокус</strong>
+          <small>Во время работы ничего не отвлекает: предметы раскрываются только после завершения таймера.</small>
+        </div>
+      </div>
+    </section>
+
+    <aside class="side-stack">
+      <section class="progress-panel">
+        <div class="panel-heading">
+          <small>Прогресс</small>
+          <strong id="player-level">Lv.1</strong>
+        </div>
+        <div class="level"><div class="bar"><div id="xp-bar" style="width:0%"></div></div></div>
+        <small id="xp-meta"></small>
+        <div id="quick-stats" class="stats-grid"></div>
+      </section>
+
+      <section class="progress-panel">
+        <div class="panel-heading">
+          <small>Сегодня</small>
+          <strong id="focus-today-total">0м</strong>
+        </div>
+        <div id="focus-quests" class="quest-list"></div>
+      </section>
+
+      <section class="progress-panel">
+        <div class="panel-heading">
+          <small>Последние сессии</small>
+        </div>
+        <div id="focus-history" class="focus-history"></div>
+      </section>
+    </aside>
+  </div>
+
+  <section id="tab-items" class="card hidden">
+    <h3>Предметы</h3>
+    <div class="row">
+      <input id="item-name" placeholder="Название">
+      <select id="item-rarity"></select>
+      <input id="item-weight" type="number" step="0.1" value="1" style="width:90px">
+      <input id="item-image" placeholder="URL или путь к картинке">
+      <input id="item-description" placeholder="Описание">
+      <button onclick="addItem()">Добавить</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" onclick="saveItemsBulk()">Сохранить правки предметов</button>
+    </div>
+    <table id="items-table"></table>
+  </section>
+
+  <section id="tab-rarities" class="card hidden">
+    <h3>Редкости и оформление дропа</h3>
+    <div class="row">
+      <button onclick="saveRarityBulk()" class="primary">Сохранить все правки</button>
+      <button onclick="tab('rarity-gradations')">Градации стопок</button>
+    </div>
+    <small>Вес задает частоту выпадения. Чем меньше вес, тем редкость встречается реже.</small>
+    <table id="rarities-table"></table>
+    <h4>Новая редкость</h4>
+    <div class="row">
+      <input id="rarity-name" placeholder="Название">
+      <input id="rarity-weight" type="number" step="0.1" min="0" placeholder="Вес">
+      <input id="rarity-color" type="color" value="#888888">
+      <input id="rarity-drop-bg-color" type="color" value="#0f172a" title="Заливка">
+      <input id="rarity-drop-text-color" type="color" value="#e4ecfb" title="Цвет текста">
+      <input id="rarity-drop-border-color" type="color" value="#3b82f6" title="Цвет контура">
+      <input id="rarity-drop-box-width" type="number" min="120" value="260" style="width:85px" title="Ширина">
+      <input id="rarity-drop-box-height" type="number" min="36" value="60" style="width:85px" title="Высота">
+      <input id="rarity-drop-font-size" type="number" min="10" value="18" style="width:85px" title="Размер текста">
+      <input id="rarity-stack-max-size" type="number" min="1" value="10" style="width:85px" title="Макс. стопка">
+      <input id="rarity-stack-display-max" type="number" min="1" value="99" style="width:85px" title="Макс. отображение">
+      <input id="rarity-sound" placeholder="Файл звука" style="min-width:260px">
+      <button onclick="pickSoundForNewRarity()">Выбрать звук...</button>
+      <button onclick="addRarity()">Добавить</button>
+    </div>
+  </section>
+
+  <section id="tab-inventory" class="card hidden">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Инвентарь</h3>
+      <button class="danger" onclick="clearInventory()">Очистить инвентарь</button>
+    </div>
+    <table id="inventory-table"></table>
+  </section>
+
+  <section id="tab-collection" class="card hidden">
+    <div class="collection-head">
+      <div>
+        <h3>Коллекция предметов</h3>
+        <small>Альбом запоминает найденные предметы отдельно от инвентаря.</small>
+      </div>
+      <button class="danger" onclick="clearCollection()">Сбросить коллекцию</button>
+    </div>
+    <div id="collection-summary" class="collection-summary"></div>
+    <div class="collection-toolbar">
+      <div class="segmented" id="collection-mode-filter">
+        <button class="active" data-collection-mode="all" onclick="setCollectionMode('all')">Все</button>
+        <button data-collection-mode="found" onclick="setCollectionMode('found')">Найденные</button>
+        <button data-collection-mode="missing" onclick="setCollectionMode('missing')">Не найденные</button>
+      </div>
+      <select id="collection-rarity-filter" onchange="renderCollection()"></select>
+      <input id="collection-search" placeholder="Поиск по названию" oninput="renderCollection()">
+    </div>
+    <div id="collection-grid" class="collection-grid"></div>
+  </section>
+
+  <section id="tab-presets" class="card hidden">
+    <h3>Пресеты</h3>
+    <small>Пресет переносит только каталог предметов, редкости и настройки дропа. Инвентарь, коллекция и учебная статистика не экспортируются.</small>
+    <div class="preset-actions">
+      <button class="primary" onclick="exportPreset()">Экспортировать текущий пресет</button>
+      <button onclick="importPreset()">Импортировать из JSON</button>
+    </div>
+    <textarea id="preset-json" spellcheck="false" placeholder="JSON пресета"></textarea>
+  </section>
+
+  <section id="tab-rarity-gradations" class="card hidden">
+    <h3>Градация редкостей</h3>
+    <small>Для каждой редкости можно задать пороги количества предметов в стопке и редкость отображения.</small>
+    <div class="row" style="margin-top:8px">
+      <button onclick="tab('rarities')">Назад к редкостям</button>
+      <button class="primary" onclick="saveRarityGradations()">Сохранить градации</button>
+    </div>
+    <div id="rarity-gradations-table" style="margin-top:10px"></div>
+  </section>
+
+  <section id="tab-filters" class="card hidden">
+    <h3>Лут-фильтр</h3>
+    <div id="filters-rarity" class="row"></div>
+    <table id="filters-items-table"></table>
+  </section>
+
+  <section id="tab-shop" class="card hidden">
+    <h3>Магазин</h3>
+    <div class="row">
+      <label>Валюта
+        <select id="shop-currency" onchange="renderShop()"></select>
+      </label>
+      <small id="shop-currency-meta"></small>
+    </div>
+    <table id="shop-table"></table>
+  </section>
+
+  <section id="tab-boosts" class="card hidden">
+    <h3>Усиления редкостей</h3>
+    <div class="row" style="margin-top:8px">
+      <button onclick="addRarityBoostRow()">Добавить усиление</button>
+      <button class="primary" onclick="saveRarityBoosts()">Сохранить усиления</button>
+    </div>
+    <table id="boosts-table" style="margin-top:8px"></table>
+  </section>
+
+  <section id="tab-settings" class="card hidden">
+    <h3>Настройки</h3>
+    <div class="settings-subtabs">
+      <button id="settings-subtab-general" onclick="showSettingsPane('general')">Общие</button>
+      <button id="settings-subtab-drop-bg" onclick="showSettingsPane('drop-bg')">Фон дропа</button>
+    </div>
+    <div id="settings-pane-general" class="settings-pane">
+      <div class="row"><label>roll_min <input id="set-roll-min" type="number"></label><label>roll_max <input id="set-roll-max" type="number"></label><label>Цена старого открытия <input id="set-open-price" type="number"></label></div>
+      <h4>Внешний вид</h4>
+      <div class="row"><label>Тема <select id="set-theme"><option value="dark">Темная</option><option value="light">Светлая</option></select></label></div>
+      <h4>Появление предметов</h4>
+      <div class="row">
+        <label><input id="set-appearance-effect-enabled" type="checkbox"> Эффект появления карточек</label>
+        <label>Кулдаун между карточками, мс <input id="set-spawn-cooldown" type="number" min="0"></label>
+      </div>
+      <h4>События дропа</h4>
+      <small>События используются как множители наград после фокус-сессии.</small>
+      <table id="drop-events-table" style="margin-top:8px"></table>
+      <div class="row" style="margin-top:8px">
+        <button onclick="addDropEventRow()">Добавить событие</button>
+      </div>
+      <h4>Система опыта</h4>
+      <div class="row"><label>Базовый XP на уровень <input id="set-base-xp" type="number" min="1"></label><label>Рост XP <input id="set-xp-growth" type="number" step="0.01" min="1.01"></label></div>
+      <h4>Редкости</h4>
+      <div class="row" style="margin-top:8px">
+        <button onclick="normalizeRangesWithConfirm()">Выставить одинаковые веса</button>
+      </div>
+    </div>
+    <div id="settings-pane-drop-bg" class="settings-pane hidden">
+      <h4>Фон области награды</h4>
+      <div class="row">
+        <label style="flex:1">Изображение
+          <input id="set-drop-bg-image-path" placeholder="URL или путь к файлу">
+        </label>
+        <button onclick="pickDropBackgroundImage()">Выбрать изображение...</button>
+      </div>
+      <div class="row">
+        <label>Яркость фона
+          <input id="set-drop-bg-brightness" type="range" min="20" max="200" step="5">
+        </label>
+        <small id="set-drop-bg-brightness-value">100%</small>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="primary" onclick="saveSettings()">Сохранить</button></div>
+  </section>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
