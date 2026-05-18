@@ -79,6 +79,18 @@
         <div id="quick-stats" class="stats-grid"></div>
       </section>
 
+      <section class="progress-panel momentum-panel">
+        <div class="panel-heading">
+          <small>Цепочка фокуса</small>
+          <strong id="focus-chain-count">x0</strong>
+        </div>
+        <div id="focus-chain-meta" class="chain-meta"></div>
+        <div class="chain-reward-row">
+          <span>Следующая награда</span>
+          <b id="focus-chain-next">+0 роллов · удача x1</b>
+        </div>
+      </section>
+
       <section class="progress-panel">
         <div class="panel-heading">
           <small>Сегодня</small>
@@ -224,6 +236,15 @@
       <div class="row"><label>roll_min <input id="set-roll-min" type="number"></label><label>roll_max <input id="set-roll-max" type="number"></label><label>Цена старого открытия <input id="set-open-price" type="number"></label></div>
       <h4>Внешний вид</h4>
       <div class="row"><label>Тема <select id="set-theme"><option value="dark">Темная</option><option value="light">Светлая</option></select></label></div>
+      <h4>Цепочка фокуса</h4>
+      <small>Сессии считаются подряд, если следующая началась до окончания окна после предыдущей.</small>
+      <div class="row" style="margin-top:8px">
+        <label>Окно между сессиями, мин <input id="set-chain-break-window" type="number" min="15" max="720"></label>
+        <label>+1 ролл каждые N сессий <input id="set-chain-bonus-every" type="number" min="1" max="12"></label>
+        <label>Макс. бонусных роллов <input id="set-chain-max-bonus" type="number" min="0" max="20"></label>
+        <label>Удача каждые N сессий <input id="set-chain-luck-every" type="number" min="1" max="12"></label>
+        <label>Макс. удача <input id="set-chain-max-luck" type="number" min="1" max="10"></label>
+      </div>
       <h4>Появление предметов</h4>
       <div class="row">
         <label><input id="set-appearance-effect-enabled" type="checkbox"> Эффект появления карточек</label>

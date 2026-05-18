@@ -334,6 +334,36 @@ button.ghost {
   gap: 8px;
 }
 
+.momentum-panel {
+  border-color: color-mix(in oklab, var(--accent), transparent 46%);
+  background:
+    linear-gradient(135deg, color-mix(in oklab, var(--accent), transparent 88%), transparent 48%),
+    color-mix(in oklab, var(--panel), transparent 4%);
+}
+
+.chain-meta {
+  min-height: 38px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.chain-reward-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in oklab, var(--accent), transparent 55%);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--accent), transparent 88%);
+}
+
+.chain-reward-row span {
+  color: var(--muted);
+}
+
 .quest-row,
 .history-row {
   display: flex;

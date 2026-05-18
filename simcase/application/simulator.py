@@ -45,6 +45,7 @@ from ..domain.normalizers import (
     normalize_drop_visuals,
     normalize_filters,
     normalize_focus,
+    normalize_focus_chain_settings,
     normalize_item,
     normalize_levels,
     normalize_market_settings,
@@ -121,6 +122,9 @@ class CaseSimulator:
         settings["auto_stop_conditions"] = normalize_auto_stop_conditions(
             settings.get("auto_stop_conditions"),
             valid_item_ids=self._item_map().keys(),
+        )
+        settings["focus_chain"] = normalize_focus_chain_settings(
+            settings.get("focus_chain")
         )
 
         self.data["stats"] = normalize_stats(self.data.get("stats"))
@@ -205,13 +209,156 @@ class CaseSimulator:
             )
         return statuses
 
+    def _focus_chain_settings(self) -> dict:
+        settings = self.data.setdefault("settings", {})
+        settings["focus_chain"] = normalize_focus_chain_settings(
+            settings.get("focus_chain")
+        )
+        return settings["focus_chain"]
+
+    def _latest_completed_at(self, focus: dict) -> int:
+        stored_completed_at = int(
+            max(0, self._sanitize_positive_float(focus.get("last_completed_at", 0), 0))
+        )
+        if stored_completed_at > 0:
+            return stored_completed_at
+        if int(focus.get("focus_streak", 0)) <= 0:
+            return 0
+
+        latest = 0
+        for session in focus.get("completed_sessions", []):
+            if not isinstance(session, dict):
+                continue
+            completed_at = int(
+                max(
+                    0,
+                    self._sanitize_positive_float(session.get("completed_at", 0), 0),
+                )
+            )
+            latest = max(latest, completed_at)
+        return latest
+
+    def _chain_deadline_at(
+        self,
+        focus: dict,
+        chain_settings: Optional[dict] = None,
+    ) -> int:
+        settings = chain_settings or self._focus_chain_settings()
+        last_completed_at = self._latest_completed_at(focus)
+        if last_completed_at <= 0:
+            return 0
+        return last_completed_at + int(settings["break_window_minutes"]) * 60
+
+    def _chain_bonus_rolls(
+        self,
+        chain_count: int,
+        chain_settings: Optional[dict] = None,
+    ) -> int:
+        settings = chain_settings or self._focus_chain_settings()
+        chain_count = max(0, int(chain_count))
+        if chain_count <= 1:
+            return 0
+        every = max(1, int(settings["bonus_roll_every"]))
+        return min(int(settings["max_bonus_rolls"]), chain_count // every)
+
+    def _chain_luck_rolls(
+        self,
+        chain_count: int,
+        chain_settings: Optional[dict] = None,
+    ) -> int:
+        settings = chain_settings or self._focus_chain_settings()
+        chain_count = max(0, int(chain_count))
+        if chain_count <= 1:
+            return 1
+        every = max(1, int(settings["luck_roll_every"]))
+        return min(
+            int(settings["max_luck_rolls"]),
+            1 + (chain_count // every),
+        )
+
+    def _session_continues_chain(
+        self,
+        focus: dict,
+        started_at: int,
+        chain_settings: Optional[dict] = None,
+    ) -> tuple[bool, int, int]:
+        settings = chain_settings or self._focus_chain_settings()
+        last_completed_at = self._latest_completed_at(focus)
+        if last_completed_at <= 0:
+            return False, 0, 0
+        deadline_at = last_completed_at + int(settings["break_window_minutes"]) * 60
+        gap_seconds = max(0, started_at - last_completed_at)
+        return started_at <= deadline_at, gap_seconds, deadline_at
+
+    def _sync_focus_chain_expiration(
+        self,
+        focus: dict,
+        now: Optional[int] = None,
+    ) -> None:
+        now = int(self._time_provider()) if now is None else int(now)
+        active = focus.get("active_session")
+        chain_settings = self._focus_chain_settings()
+        deadline_at = self._chain_deadline_at(focus, chain_settings)
+        if deadline_at <= 0:
+            return
+        if active:
+            started_at = int(
+                max(0, self._sanitize_positive_float(active.get("started_at", 0), 0))
+            )
+            if started_at and started_at <= deadline_at:
+                return
+        if now > deadline_at:
+            focus["focus_streak"] = 0
+            focus["chain_started_at"] = 0
+
+    def _focus_chain_summary(self, focus: dict, now: Optional[int] = None) -> dict:
+        now = int(self._time_provider()) if now is None else int(now)
+        settings = self._focus_chain_settings()
+        current_count = int(focus.get("focus_streak", 0))
+        last_completed_at = self._latest_completed_at(focus)
+        deadline_at = self._chain_deadline_at(focus, settings)
+        active = focus.get("active_session")
+
+        if active:
+            started_at = int(
+                max(0, self._sanitize_positive_float(active.get("started_at", now), now))
+            )
+            continues, gap_seconds, _deadline_at = self._session_continues_chain(
+                focus,
+                started_at,
+                settings,
+            )
+            next_count = current_count + 1 if continues else 1
+        else:
+            continues = bool(last_completed_at and now <= deadline_at)
+            gap_seconds = max(0, now - last_completed_at) if last_completed_at else 0
+            next_count = current_count + 1 if continues else 1
+
+        return {
+            "current": current_count,
+            "best": int(focus.get("best_focus_streak", 0)),
+            "break_window_minutes": int(settings["break_window_minutes"]),
+            "last_completed_at": last_completed_at,
+            "chain_started_at": int(focus.get("chain_started_at", 0)),
+            "deadline_at": deadline_at,
+            "seconds_left": max(0, deadline_at - now) if deadline_at else 0,
+            "gap_minutes": round(gap_seconds / 60, 1),
+            "next_count": next_count,
+            "continues": continues,
+            "next_bonus_rolls": self._chain_bonus_rolls(next_count, settings),
+            "next_luck_rolls": self._chain_luck_rolls(next_count, settings),
+        }
+
     def _refresh_focus_summary(self) -> None:
         focus = self._focus_state()
+        now = int(self._time_provider())
+        self._sync_focus_chain_expiration(focus, now)
         today = self._today_key()
         row = self._today_focus_row(today)
         focus["today_minutes"] = int(row.get("minutes", 0))
         focus["today_sessions"] = int(row.get("sessions", 0))
         focus["daily_quests"] = self._daily_quest_status(today)
+        focus["chain"] = self._focus_chain_summary(focus, now)
 
     def _rarity_map(self) -> Dict[str, dict]:
         return build_rarity_map(self.data["rarities"])
@@ -770,6 +917,7 @@ class CaseSimulator:
         task_title = task_title[:120]
 
         started_at = int(self._time_provider())
+        self._sync_focus_chain_expiration(focus, started_at)
         session = {
             "id": self._id_factory(),
             "task_title": task_title,
@@ -791,6 +939,8 @@ class CaseSimulator:
 
         focus["active_session"] = None
         focus["focus_streak"] = 0
+        focus["chain_started_at"] = 0
+        focus["last_completed_at"] = 0
         self._append_history(
             "cancel_focus_session",
             {
@@ -835,12 +985,27 @@ class CaseSimulator:
             }
 
         duration_minutes = int(max(1, active.get("duration_minutes", 1)))
+        started_at = int(active.get("started_at", 0))
+        chain_settings = self._focus_chain_settings()
+        continued_chain, chain_gap_seconds, chain_deadline_at = (
+            self._session_continues_chain(focus, started_at, chain_settings)
+        )
+        previous_chain = int(focus.get("focus_streak", 0)) if continued_chain else 0
+        chain_count = previous_chain + 1
+        chain_started_at = int(focus.get("chain_started_at", 0)) if continued_chain else 0
+        if chain_started_at <= 0:
+            chain_started_at = started_at or now
+        chain_bonus_rolls = self._chain_bonus_rolls(chain_count, chain_settings)
+        chain_luck_rolls = self._chain_luck_rolls(chain_count, chain_settings)
+
         focus["active_session"] = None
-        focus["focus_streak"] = int(focus.get("focus_streak", 0)) + 1
+        focus["focus_streak"] = chain_count
         focus["best_focus_streak"] = max(
             int(focus.get("best_focus_streak", 0)),
             int(focus.get("focus_streak", 0)),
         )
+        focus["last_completed_at"] = now
+        focus["chain_started_at"] = chain_started_at
 
         today = self._today_key(now)
         today_row = self._today_focus_row(today)
@@ -856,17 +1021,24 @@ class CaseSimulator:
         claimed_quests, quest_bonus_rolls = self._claim_completed_daily_quests(today)
         completed_count = int(stats.get("completed_focus_sessions", 0))
         long_break_suggested = completed_count % 4 == 0
-        streak = int(focus.get("focus_streak", 0))
-        reward_luck_rolls = min(3, 1 + max(0, streak - 1) // 3)
-        reward_rolls = 1 + quest_bonus_rolls + (1 if long_break_suggested else 0)
+        reward_luck_rolls = chain_luck_rolls
+        reward_rolls = (
+            1
+            + quest_bonus_rolls
+            + (1 if long_break_suggested else 0)
+            + chain_bonus_rolls
+        )
 
         session_record = {
             "id": active.get("id"),
             "task_title": active.get("task_title", "Фокус-сессия"),
             "duration_minutes": duration_minutes,
-            "started_at": int(active.get("started_at", 0)),
+            "started_at": started_at,
             "completed_at": now,
             "reward_rolls": reward_rolls,
+            "chain_count": chain_count,
+            "chain_bonus_rolls": chain_bonus_rolls,
+            "chain_luck_rolls": chain_luck_rolls,
         }
         focus.setdefault("completed_sessions", []).insert(0, session_record)
         focus["completed_sessions"] = focus["completed_sessions"][:200]
@@ -884,6 +1056,18 @@ class CaseSimulator:
             "reward_luck_rolls": reward_luck_rolls,
             "claimed_quests": claimed_quests,
             "long_break_suggested": long_break_suggested,
+            "chain": {
+                "count": chain_count,
+                "continued": continued_chain,
+                "gap_minutes": round(chain_gap_seconds / 60, 1),
+                "break_window_minutes": int(chain_settings["break_window_minutes"]),
+                "chain_started_at": chain_started_at,
+                "previous_deadline_at": chain_deadline_at,
+                "next_deadline_at": now
+                + int(chain_settings["break_window_minutes"]) * 60,
+                "bonus_rolls": chain_bonus_rolls,
+                "luck_rolls": chain_luck_rolls,
+            },
         }
         self._append_history("complete_focus_session", metadata)
         self.save()
@@ -1536,6 +1720,14 @@ class CaseSimulator:
                 settings["auto_stop_conditions"] = normalize_auto_stop_conditions(
                     raw_auto_stop,
                     valid_item_ids=self._item_map().keys(),
+                )
+
+            if "focus_chain" in payload:
+                raw_focus_chain = payload.get("focus_chain")
+                if not isinstance(raw_focus_chain, dict):
+                    raise TypeError("focus_chain must be dict")
+                settings["focus_chain"] = normalize_focus_chain_settings(
+                    raw_focus_chain
                 )
         except (TypeError, ValueError):
             self.data["settings"] = snapshot

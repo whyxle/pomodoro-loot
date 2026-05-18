@@ -8,7 +8,7 @@ Start an honest pomodoro timer, finish a study session, and receive loot afterwa
 
 - Loot is granted only after a focus session is completed.
 - XP is based on focused minutes.
-- Completion streaks give a soft luck bonus to future rewards.
+- Focus chains continue when the next session starts within the configurable break window, giving cumulative bonus rolls and luck.
 - Daily goals for 1 session, 60 minutes, and 120 minutes grant bonus rewards once per day.
 - Every 4th completed session suggests a long break and adds an extra reward roll.
 - The item collection is stored separately from the inventory.

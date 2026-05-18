@@ -121,6 +121,13 @@ class SimulatorRegressionTests(unittest.TestCase):
                     {"item_id": item_id, "target_qty": 0},
                     {"item_id": "missing", "target_qty": 50},
                 ],
+                "focus_chain": {
+                    "break_window_minutes": 5,
+                    "bonus_roll_every": 0,
+                    "max_bonus_rolls": 50,
+                    "luck_roll_every": 0,
+                    "max_luck_rolls": 99,
+                },
             }
         )
 
@@ -142,6 +149,16 @@ class SimulatorRegressionTests(unittest.TestCase):
         self.assertEqual(
             [{"item_id": item_id, "target_qty": 1}],
             settings["auto_stop_conditions"],
+        )
+        self.assertEqual(
+            {
+                "break_window_minutes": 15,
+                "bonus_roll_every": 1,
+                "max_bonus_rolls": 20,
+                "luck_roll_every": 1,
+                "max_luck_rolls": 10,
+            },
+            settings["focus_chain"],
         )
 
     def test_normalize_drop_events_repairs_corrupted_standard_names(self):
@@ -256,8 +273,123 @@ class SimulatorRegressionTests(unittest.TestCase):
         second_reward = simulator.complete_focus_session(second["session"]["id"])
 
         self.assertEqual([], second_reward["focus_reward"]["claimed_quests"])
-        self.assertEqual(1, second_reward["focus_reward"]["reward_rolls"])
+        self.assertEqual(2, second_reward["focus_reward"]["reward_rolls"])
         self.assertEqual(61, second_reward["state"]["focus"]["today_minutes"])
+
+    def test_focus_chain_continues_within_configured_break_window(self):
+        clock = MutableClock(4000.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+        simulator.update_settings(
+            {
+                "focus_chain": {
+                    "break_window_minutes": 150,
+                    "bonus_roll_every": 2,
+                    "max_bonus_rolls": 5,
+                    "luck_roll_every": 3,
+                    "max_luck_rolls": 5,
+                }
+            }
+        )
+
+        first = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        first_reward = simulator.complete_focus_session(first["session"]["id"])
+
+        clock.now += 149 * 60
+        second = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        second_reward = simulator.complete_focus_session(second["session"]["id"])
+
+        clock.now += 1
+        third = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        third_reward = simulator.complete_focus_session(third["session"]["id"])
+
+        self.assertEqual(1, first_reward["focus_reward"]["chain"]["count"])
+        self.assertEqual(2, second_reward["focus_reward"]["chain"]["count"])
+        self.assertEqual(3, third_reward["focus_reward"]["chain"]["count"])
+        self.assertTrue(second_reward["focus_reward"]["chain"]["continued"])
+        self.assertEqual(1, second_reward["focus_reward"]["chain"]["bonus_rolls"])
+        self.assertEqual(2, second_reward["focus_reward"]["reward_rolls"])
+        self.assertEqual(2, third_reward["focus_reward"]["chain"]["luck_rolls"])
+        self.assertEqual(3, third_reward["state"]["focus"]["focus_streak"])
+        self.assertEqual(3, third_reward["state"]["focus"]["best_focus_streak"])
+
+    def test_focus_chain_resets_after_configured_break_window(self):
+        clock = MutableClock(8000.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+        simulator.update_settings(
+            {
+                "focus_chain": {
+                    "break_window_minutes": 30,
+                    "bonus_roll_every": 2,
+                    "max_bonus_rolls": 5,
+                    "luck_roll_every": 3,
+                    "max_luck_rolls": 5,
+                }
+            }
+        )
+
+        first = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        simulator.complete_focus_session(first["session"]["id"])
+
+        clock.now += 31 * 60
+        expired_state = simulator.state()
+        self.assertEqual(0, expired_state["focus"]["focus_streak"])
+
+        second = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        second_reward = simulator.complete_focus_session(second["session"]["id"])
+
+        self.assertEqual(1, second_reward["focus_reward"]["chain"]["count"])
+        self.assertFalse(second_reward["focus_reward"]["chain"]["continued"])
+        self.assertEqual(0, second_reward["focus_reward"]["chain"]["bonus_rolls"])
+        self.assertEqual(1, second_reward["focus_reward"]["reward_rolls"])
+
+    def test_cancelled_session_breaks_existing_focus_chain(self):
+        clock = MutableClock(12000.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+
+        first = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        simulator.complete_focus_session(first["session"]["id"])
+
+        cancelled = simulator.start_focus_session({"duration_minutes": 1})
+        simulator.cancel_focus_session(cancelled["session"]["id"])
+
+        clock.now += 60
+        next_session = simulator.start_focus_session({"duration_minutes": 1})
+        clock.now += 60
+        next_reward = simulator.complete_focus_session(next_session["session"]["id"])
+
+        self.assertEqual(1, next_reward["focus_reward"]["chain"]["count"])
+        self.assertFalse(next_reward["focus_reward"]["chain"]["continued"])
+        self.assertEqual(1, next_reward["focus_reward"]["reward_rolls"])
 
     def test_preset_export_excludes_progress_and_import_replaces_catalog(self):
         simulator = self.create_simulator()

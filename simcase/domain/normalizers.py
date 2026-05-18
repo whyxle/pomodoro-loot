@@ -239,6 +239,60 @@ def normalize_market_settings(raw_market) -> dict:
     return normalized
 
 
+def normalize_focus_chain_settings(raw_chain) -> dict:
+    chain = raw_chain if isinstance(raw_chain, dict) else {}
+    return {
+        "break_window_minutes": int(
+            min(
+                720,
+                max(
+                    15,
+                    sanitize_positive_float(
+                        chain.get("break_window_minutes", 150),
+                        150,
+                    ),
+                ),
+            )
+        ),
+        "bonus_roll_every": int(
+            min(
+                12,
+                max(
+                    1,
+                    sanitize_positive_float(chain.get("bonus_roll_every", 2), 2),
+                ),
+            )
+        ),
+        "max_bonus_rolls": int(
+            min(
+                20,
+                max(
+                    0,
+                    sanitize_positive_float(chain.get("max_bonus_rolls", 5), 5),
+                ),
+            )
+        ),
+        "luck_roll_every": int(
+            min(
+                12,
+                max(
+                    1,
+                    sanitize_positive_float(chain.get("luck_roll_every", 3), 3),
+                ),
+            )
+        ),
+        "max_luck_rolls": int(
+            min(
+                10,
+                max(
+                    1,
+                    sanitize_positive_float(chain.get("max_luck_rolls", 5), 5),
+                ),
+            )
+        ),
+    }
+
+
 def normalize_market_state(raw_market) -> dict:
     raw = raw_market if isinstance(raw_market, dict) else {}
     normalized = copy_default_market_state()
@@ -368,6 +422,27 @@ def normalize_focus(raw_focus) -> dict:
                     "reward_rolls": int(
                         max(0, sanitize_positive_float(session.get("reward_rolls", 0), 0))
                     ),
+                    "chain_count": int(
+                        max(0, sanitize_positive_float(session.get("chain_count", 0), 0))
+                    ),
+                    "chain_bonus_rolls": int(
+                        max(
+                            0,
+                            sanitize_positive_float(
+                                session.get("chain_bonus_rolls", 0),
+                                0,
+                            ),
+                        )
+                    ),
+                    "chain_luck_rolls": int(
+                        max(
+                            1,
+                            sanitize_positive_float(
+                                session.get("chain_luck_rolls", 1),
+                                1,
+                            ),
+                        )
+                    ),
                 }
             )
 
@@ -409,6 +484,12 @@ def normalize_focus(raw_focus) -> dict:
         ),
         "best_focus_streak": int(
             max(0, sanitize_positive_float(focus.get("best_focus_streak", 0), 0))
+        ),
+        "last_completed_at": int(
+            max(0, sanitize_positive_float(focus.get("last_completed_at", 0), 0))
+        ),
+        "chain_started_at": int(
+            max(0, sanitize_positive_float(focus.get("chain_started_at", 0), 0))
         ),
         "today_minutes": int(
             max(0, sanitize_positive_float(focus.get("today_minutes", 0), 0))

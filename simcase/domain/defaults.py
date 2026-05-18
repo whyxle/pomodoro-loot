@@ -45,6 +45,13 @@ def default_settings() -> dict:
         "market": copy_default_market_settings(),
         "rarity_boosts": [],
         "auto_stop_conditions": [],
+        "focus_chain": {
+            "break_window_minutes": 150,
+            "bonus_roll_every": 2,
+            "max_bonus_rolls": 5,
+            "luck_roll_every": 3,
+            "max_luck_rolls": 5,
+        },
     }
 
 
@@ -73,6 +80,8 @@ def default_focus() -> dict:
         "daily_focus": {},
         "focus_streak": 0,
         "best_focus_streak": 0,
+        "last_completed_at": 0,
+        "chain_started_at": 0,
         "today_minutes": 0,
         "today_sessions": 0,
         "quest_claims": {},

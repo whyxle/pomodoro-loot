@@ -244,8 +244,8 @@ function renderPlayer() {
   document.getElementById('quick-stats').innerHTML = `
     <div class="stat-card"><small>Минут фокуса</small><b>${Number(stats.total_focus_minutes || 0).toLocaleString('ru-RU')}</b></div>
     <div class="stat-card"><small>Сессий</small><b>${Number(stats.completed_focus_sessions || 0).toLocaleString('ru-RU')}</b></div>
-    <div class="stat-card"><small>Серия</small><b>${Number(focus.focus_streak || 0)}</b></div>
-    <div class="stat-card"><small>Лучшее</small><b>${Number(focus.best_focus_streak || 0)}</b></div>
+    <div class="stat-card"><small>Цепочка</small><b>${Number(focus.focus_streak || 0)}</b></div>
+    <div class="stat-card"><small>Лучшая</small><b>${Number(focus.best_focus_streak || 0)}</b></div>
   `;
 }
 
@@ -254,6 +254,15 @@ function formatSeconds(totalSeconds) {
   const minutes = Math.floor(safe / 60);
   const seconds = safe % 60;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatChainWindow(totalSeconds) {
+  const safe = Math.max(0, Math.ceil(Number(totalSeconds) || 0));
+  if (safe <= 0) return 'окно закрыто';
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.ceil((safe % 3600) / 60);
+  if (hours <= 0) return `${minutes} мин`;
+  return `${hours} ч ${String(minutes).padStart(2, '0')} мин`;
 }
 
 function activeFocusSession() {
@@ -313,6 +322,10 @@ function renderFocus() {
   const questsEl = document.getElementById('focus-quests');
   const historyEl = document.getElementById('focus-history');
   const summaryEl = document.getElementById('open-summary');
+  const chain = focus.chain || {};
+  const chainCountEl = document.getElementById('focus-chain-count');
+  const chainMetaEl = document.getElementById('focus-chain-meta');
+  const chainNextEl = document.getElementById('focus-chain-next');
 
   if (!startButton || !cancelButton || !taskInput || !durationInput) return;
 
@@ -324,7 +337,7 @@ function renderFocus() {
   if (session) {
     taskInput.value = session.task_title || '';
     durationInput.value = session.duration_minutes || 25;
-    if (summaryEl) summaryEl.textContent = `Серия: ${Number(focus.focus_streak || 0)}`;
+    if (summaryEl) summaryEl.textContent = `Цепочка: ${Number(focus.focus_streak || 0)}`;
     if (focusTimerId === null) {
       focusTimerId = setInterval(updateFocusTimer, 500);
     }
@@ -335,6 +348,23 @@ function renderFocus() {
 
   if (todayTotal) {
     todayTotal.textContent = `${Number(focus.today_minutes || 0)}м`;
+  }
+  if (chainCountEl && chainMetaEl && chainNextEl) {
+    const currentChain = Number(chain.current ?? focus.focus_streak ?? 0);
+    const nextCount = Number(chain.next_count || 1);
+    const bonusRolls = Number(chain.next_bonus_rolls || 0);
+    const luckRolls = Number(chain.next_luck_rolls || 1);
+    chainCountEl.textContent = `x${currentChain}`;
+    chainNextEl.textContent = `#${nextCount}: +${bonusRolls} ролл. · удача x${luckRolls}`;
+    if (session && chain.continues) {
+      chainMetaEl.textContent = 'Эта сессия уже удерживает цепочку. Награда усилится после завершения.';
+    } else if (currentChain > 0 && Number(chain.seconds_left || 0) > 0) {
+      chainMetaEl.textContent = `Начните следующую сессию за ${formatChainWindow(chain.seconds_left)}. Окно: ${Number(chain.break_window_minutes || 150)} мин.`;
+    } else if (currentChain > 0) {
+      chainMetaEl.textContent = 'Окно цепочки закрыто. Следующая сессия начнет новый разгон.';
+    } else {
+      chainMetaEl.textContent = `Завершите сессию, затем возвращайтесь в течение ${Number(chain.break_window_minutes || 150)} мин.`;
+    }
   }
   if (questsEl) {
     const quests = focus.daily_quests || [];
@@ -355,7 +385,7 @@ function renderFocus() {
     historyEl.innerHTML = sessions.map((row) => `
       <div class="history-row">
         <span>${escapeHtml(row.task_title || 'Фокус-сессия')}</span>
-        <b>${Number(row.duration_minutes || 0)}м</b>
+        <b>${Number(row.duration_minutes || 0)}м${row.chain_count ? ` · x${Number(row.chain_count)}` : ''}</b>
       </div>
     `).join('') || '<small>Здесь появятся завершенные сессии</small>';
   }
@@ -592,6 +622,12 @@ function renderSettings() {
   document.getElementById('set-base-xp').value = s.levels.base_xp;
   document.getElementById('set-xp-growth').value = s.levels.xp_growth;
   document.getElementById('set-theme').value = (s.appearance && s.appearance.theme) || 'dark';
+  const focusChain = s.focus_chain || {};
+  document.getElementById('set-chain-break-window').value = focusChain.break_window_minutes ?? 150;
+  document.getElementById('set-chain-bonus-every').value = focusChain.bonus_roll_every ?? 2;
+  document.getElementById('set-chain-max-bonus').value = focusChain.max_bonus_rolls ?? 5;
+  document.getElementById('set-chain-luck-every').value = focusChain.luck_roll_every ?? 3;
+  document.getElementById('set-chain-max-luck').value = focusChain.max_luck_rolls ?? 5;
   const dropVisuals = s.drop_visuals || {};
   document.getElementById('set-appearance-effect-enabled').checked = dropVisuals.appearance_effect_enabled !== false;
   document.getElementById('set-spawn-cooldown').value = Number.isFinite(dropVisuals.spawn_cooldown_ms) ? dropVisuals.spawn_cooldown_ms : 70;
@@ -976,9 +1012,12 @@ function renderFocusRewardSummary(res, drops) {
   const totalQty = visibleQty + hiddenQty;
   const session = reward.session || {};
   const quests = reward.claimed_quests || [];
+  const chain = reward.chain || {};
   const notes = [];
   if (quests.length) notes.push(`цели дня: ${quests.length}`);
   if (reward.long_break_suggested) notes.push('длинный перерыв');
+  if (chain.count > 1) notes.push(`цепочка x${Number(chain.count)}`);
+  if (chain.bonus_rolls > 0) notes.push(`цепь +${Number(chain.bonus_rolls)} ролл.`);
   if (reward.reward_luck_rolls > 1) notes.push(`удача x${reward.reward_luck_rolls}`);
   const summaryEl = document.getElementById('open-summary');
   if (summaryEl) {
@@ -1343,6 +1382,13 @@ async function saveSettings() {
     levels: {
       base_xp: parseInt(document.getElementById('set-base-xp').value, 10),
       xp_growth: parseFloat(document.getElementById('set-xp-growth').value),
+    },
+    focus_chain: {
+      break_window_minutes: parseInt(document.getElementById('set-chain-break-window').value || '150', 10),
+      bonus_roll_every: parseInt(document.getElementById('set-chain-bonus-every').value || '2', 10),
+      max_bonus_rolls: parseInt(document.getElementById('set-chain-max-bonus').value || '5', 10),
+      luck_roll_every: parseInt(document.getElementById('set-chain-luck-every').value || '3', 10),
+      max_luck_rolls: parseInt(document.getElementById('set-chain-max-luck').value || '5', 10),
     },
   });
 }
