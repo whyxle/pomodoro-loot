@@ -127,6 +127,14 @@ class SimulatorRegressionTests(unittest.TestCase):
                     "max_bonus_rolls": 50,
                     "luck_roll_every": 0,
                     "max_luck_rolls": 99,
+                    "daily_chain_bonus_roll_cap": 99,
+                    "short_session_minutes": 99,
+                    "short_session_daily_limit": 99,
+                    "short_session_decay": 2,
+                    "long_session_minutes": 999,
+                    "long_session_bonus_rolls": 99,
+                    "deep_session_minutes": 1,
+                    "deep_session_bonus_rolls": 99,
                 },
             }
         )
@@ -157,6 +165,14 @@ class SimulatorRegressionTests(unittest.TestCase):
                 "max_bonus_rolls": 20,
                 "luck_roll_every": 1,
                 "max_luck_rolls": 10,
+                "daily_chain_bonus_roll_cap": 50,
+                "short_session_minutes": 60,
+                "short_session_daily_limit": 30,
+                "short_session_decay": 1.0,
+                "long_session_minutes": 180,
+                "long_session_bonus_rolls": 10,
+                "deep_session_minutes": 180,
+                "deep_session_bonus_rolls": 20,
             },
             settings["focus_chain"],
         )
@@ -266,7 +282,7 @@ class SimulatorRegressionTests(unittest.TestCase):
             quest["id"] for quest in first_reward["focus_reward"]["claimed_quests"]
         }
         self.assertEqual({"first_session", "focus_60"}, claimed_ids)
-        self.assertEqual(3, first_reward["focus_reward"]["reward_rolls"])
+        self.assertEqual(4, first_reward["focus_reward"]["reward_rolls"])
 
         second = simulator.start_focus_session({"duration_minutes": 1})
         clock.now += 60
@@ -423,6 +439,120 @@ class SimulatorRegressionTests(unittest.TestCase):
         self.assertEqual(1, next_reward["focus_reward"]["chain"]["count"])
         self.assertFalse(next_reward["focus_reward"]["chain"]["continued"])
         self.assertEqual(1, next_reward["focus_reward"]["reward_rolls"])
+
+    def test_short_session_diminishing_returns_reduce_chain_bonus(self):
+        clock = MutableClock(20000.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+        simulator.update_settings(
+            {
+                "focus_chain": {
+                    "break_window_minutes": 150,
+                    "bonus_roll_every": 2,
+                    "max_bonus_rolls": 5,
+                    "luck_roll_every": 3,
+                    "max_luck_rolls": 5,
+                    "daily_chain_bonus_roll_cap": 8,
+                    "short_session_minutes": 15,
+                    "short_session_daily_limit": 1,
+                    "short_session_decay": 0.5,
+                    "long_session_minutes": 45,
+                    "long_session_bonus_rolls": 1,
+                    "deep_session_minutes": 90,
+                    "deep_session_bonus_rolls": 2,
+                }
+            }
+        )
+
+        first = simulator.start_focus_session({"duration_minutes": 5})
+        clock.now += 5 * 60
+        simulator.complete_focus_session(first["session"]["id"])
+
+        second = simulator.start_focus_session({"duration_minutes": 5})
+        clock.now += 5 * 60
+        second_reward = simulator.complete_focus_session(second["session"]["id"])
+
+        self.assertEqual(2, second_reward["focus_reward"]["chain"]["count"])
+        self.assertEqual(1, second_reward["focus_reward"]["chain"]["raw_bonus_rolls"])
+        self.assertEqual(0, second_reward["focus_reward"]["chain"]["bonus_rolls"])
+        self.assertEqual(0.5, second_reward["focus_reward"]["anti_farm"]["short_session_multiplier"])
+        self.assertEqual(1, second_reward["focus_reward"]["reward_rolls"])
+
+    def test_daily_chain_bonus_cap_limits_streak_farming(self):
+        clock = MutableClock(24000.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+        simulator.update_settings(
+            {
+                "focus_chain": {
+                    "break_window_minutes": 150,
+                    "bonus_roll_every": 2,
+                    "max_bonus_rolls": 5,
+                    "luck_roll_every": 3,
+                    "max_luck_rolls": 5,
+                    "daily_chain_bonus_roll_cap": 1,
+                    "short_session_minutes": 15,
+                    "short_session_daily_limit": 3,
+                    "short_session_decay": 0.5,
+                    "long_session_minutes": 45,
+                    "long_session_bonus_rolls": 1,
+                    "deep_session_minutes": 90,
+                    "deep_session_bonus_rolls": 2,
+                }
+            }
+        )
+
+        first = simulator.start_focus_session({"duration_minutes": 15})
+        clock.now += 15 * 60
+        simulator.complete_focus_session(first["session"]["id"])
+
+        second = simulator.start_focus_session({"duration_minutes": 15})
+        clock.now += 15 * 60
+        second_reward = simulator.complete_focus_session(second["session"]["id"])
+
+        third = simulator.start_focus_session({"duration_minutes": 15})
+        clock.now += 15 * 60
+        third_reward = simulator.complete_focus_session(third["session"]["id"])
+
+        self.assertEqual(1, second_reward["focus_reward"]["chain"]["bonus_rolls"])
+        self.assertEqual(2, second_reward["focus_reward"]["reward_rolls"])
+        self.assertEqual(0, third_reward["focus_reward"]["chain"]["bonus_rolls"])
+        self.assertTrue(third_reward["focus_reward"]["anti_farm"]["daily_cap_hit"])
+        self.assertEqual(1, third_reward["focus_reward"]["anti_farm"]["daily_chain_bonus_used"])
+        self.assertEqual(1, third_reward["focus_reward"]["reward_rolls"])
+
+    def test_long_focus_block_gets_length_bonus(self):
+        clock = MutableClock(28000.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+
+        session = simulator.start_focus_session({"duration_minutes": 45})
+        clock.now += 45 * 60
+        reward = simulator.complete_focus_session(session["session"]["id"])
+
+        self.assertEqual(1, reward["focus_reward"]["anti_farm"]["length_bonus_rolls"])
+        self.assertEqual(3, reward["focus_reward"]["reward_rolls"])
 
     def test_preset_export_excludes_progress_and_import_replaces_catalog(self):
         simulator = self.create_simulator()

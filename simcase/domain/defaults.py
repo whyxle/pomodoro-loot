@@ -51,6 +51,14 @@ def default_settings() -> dict:
             "max_bonus_rolls": 5,
             "luck_roll_every": 3,
             "max_luck_rolls": 5,
+            "daily_chain_bonus_roll_cap": 8,
+            "short_session_minutes": 15,
+            "short_session_daily_limit": 3,
+            "short_session_decay": 0.5,
+            "long_session_minutes": 45,
+            "long_session_bonus_rolls": 1,
+            "deep_session_minutes": 90,
+            "deep_session_bonus_rolls": 2,
         },
     }
 

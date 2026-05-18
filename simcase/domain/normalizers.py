@@ -241,6 +241,24 @@ def normalize_market_settings(raw_market) -> dict:
 
 def normalize_focus_chain_settings(raw_chain) -> dict:
     chain = raw_chain if isinstance(raw_chain, dict) else {}
+    long_session_minutes = int(
+        min(
+            180,
+            max(
+                1,
+                sanitize_positive_float(chain.get("long_session_minutes", 45), 45),
+            ),
+        )
+    )
+    deep_session_minutes = int(
+        min(
+            180,
+            max(
+                long_session_minutes,
+                sanitize_positive_float(chain.get("deep_session_minutes", 90), 90),
+            ),
+        )
+    )
     return {
         "break_window_minutes": int(
             min(
@@ -287,6 +305,75 @@ def normalize_focus_chain_settings(raw_chain) -> dict:
                 max(
                     1,
                     sanitize_positive_float(chain.get("max_luck_rolls", 5), 5),
+                ),
+            )
+        ),
+        "daily_chain_bonus_roll_cap": int(
+            min(
+                50,
+                max(
+                    0,
+                    sanitize_positive_float(
+                        chain.get("daily_chain_bonus_roll_cap", 8),
+                        8,
+                    ),
+                ),
+            )
+        ),
+        "short_session_minutes": int(
+            min(
+                60,
+                max(
+                    0,
+                    sanitize_positive_float(
+                        chain.get("short_session_minutes", 15),
+                        15,
+                    ),
+                ),
+            )
+        ),
+        "short_session_daily_limit": int(
+            min(
+                30,
+                max(
+                    0,
+                    sanitize_positive_float(
+                        chain.get("short_session_daily_limit", 3),
+                        3,
+                    ),
+                ),
+            )
+        ),
+        "short_session_decay": min(
+            1.0,
+            max(
+                0.0,
+                sanitize_positive_float(chain.get("short_session_decay", 0.5), 0.5),
+            ),
+        ),
+        "long_session_minutes": long_session_minutes,
+        "long_session_bonus_rolls": int(
+            min(
+                10,
+                max(
+                    0,
+                    sanitize_positive_float(
+                        chain.get("long_session_bonus_rolls", 1),
+                        1,
+                    ),
+                ),
+            )
+        ),
+        "deep_session_minutes": deep_session_minutes,
+        "deep_session_bonus_rolls": int(
+            min(
+                20,
+                max(
+                    0,
+                    sanitize_positive_float(
+                        chain.get("deep_session_bonus_rolls", 2),
+                        2,
+                    ),
                 ),
             )
         ),
@@ -461,6 +548,12 @@ def normalize_focus(raw_focus) -> dict:
                 ),
                 "sessions": int(
                     max(0, sanitize_positive_float(row.get("sessions", 0), 0))
+                ),
+                "short_sessions": int(
+                    max(0, sanitize_positive_float(row.get("short_sessions", 0), 0))
+                ),
+                "chain_bonus_rolls": int(
+                    max(0, sanitize_positive_float(row.get("chain_bonus_rolls", 0), 0))
                 ),
             }
 

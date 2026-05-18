@@ -278,6 +278,80 @@ class CaseSimulator:
             1 + (chain_count // every),
         )
 
+    def _length_bonus_rolls(
+        self,
+        duration_minutes: int,
+        chain_settings: Optional[dict] = None,
+    ) -> int:
+        settings = chain_settings or self._focus_chain_settings()
+        duration_minutes = max(0, int(duration_minutes))
+        if duration_minutes >= int(settings["deep_session_minutes"]):
+            return int(settings["deep_session_bonus_rolls"])
+        if duration_minutes >= int(settings["long_session_minutes"]):
+            return int(settings["long_session_bonus_rolls"])
+        return 0
+
+    def _short_session_multiplier(
+        self,
+        duration_minutes: int,
+        short_sessions_before: int,
+        chain_settings: Optional[dict] = None,
+    ) -> tuple[bool, float]:
+        settings = chain_settings or self._focus_chain_settings()
+        short_limit_minutes = int(settings["short_session_minutes"])
+        is_short = short_limit_minutes > 0 and duration_minutes < short_limit_minutes
+        if not is_short:
+            return False, 1.0
+
+        daily_limit = int(settings["short_session_daily_limit"])
+        if short_sessions_before < daily_limit:
+            return True, 1.0
+
+        over_limit = short_sessions_before - daily_limit + 1
+        decay = float(settings["short_session_decay"])
+        return True, max(0.0, min(1.0, decay**over_limit))
+
+    def _apply_focus_chain_limits(
+        self,
+        raw_bonus_rolls: int,
+        raw_luck_rolls: int,
+        duration_minutes: int,
+        today_row: dict,
+        chain_settings: Optional[dict] = None,
+    ) -> dict:
+        settings = chain_settings or self._focus_chain_settings()
+        short_sessions_before = int(today_row.get("short_sessions", 0))
+        is_short, short_multiplier = self._short_session_multiplier(
+            duration_minutes,
+            short_sessions_before,
+            settings,
+        )
+        scaled_bonus_rolls = int(max(0, raw_bonus_rolls) * short_multiplier)
+        scaled_luck_rolls = 1 + int(max(0, raw_luck_rolls - 1) * short_multiplier)
+
+        daily_cap = int(settings["daily_chain_bonus_roll_cap"])
+        daily_used_before = int(today_row.get("chain_bonus_rolls", 0))
+        daily_left = max(0, daily_cap - daily_used_before) if daily_cap > 0 else 0
+        capped_bonus_rolls = min(scaled_bonus_rolls, daily_left)
+        length_bonus_rolls = self._length_bonus_rolls(duration_minutes, settings)
+
+        return {
+            "chain_bonus_rolls": capped_bonus_rolls,
+            "chain_luck_rolls": max(1, scaled_luck_rolls),
+            "length_bonus_rolls": length_bonus_rolls,
+            "short_session": is_short,
+            "short_sessions_before": short_sessions_before,
+            "short_session_multiplier": round(short_multiplier, 3),
+            "raw_chain_bonus_rolls": max(0, int(raw_bonus_rolls)),
+            "scaled_chain_bonus_rolls": scaled_bonus_rolls,
+            "raw_chain_luck_rolls": max(1, int(raw_luck_rolls)),
+            "scaled_chain_luck_rolls": max(1, scaled_luck_rolls),
+            "daily_chain_bonus_cap": daily_cap,
+            "daily_chain_bonus_used_before": daily_used_before,
+            "daily_chain_bonus_left_before": daily_left,
+            "daily_cap_hit": scaled_bonus_rolls > capped_bonus_rolls,
+        }
+
     def _session_continues_chain(
         self,
         focus: dict,
@@ -320,6 +394,9 @@ class CaseSimulator:
         last_completed_at = self._latest_completed_at(focus)
         deadline_at = self._chain_deadline_at(focus, settings)
         active = focus.get("active_session")
+        today_row = self._today_focus_row(self._today_key(now))
+        daily_bonus_used = int(today_row.get("chain_bonus_rolls", 0))
+        daily_bonus_cap = int(settings["daily_chain_bonus_roll_cap"])
 
         if active:
             started_at = int(
@@ -340,6 +417,9 @@ class CaseSimulator:
             "current": current_count,
             "best": int(focus.get("best_focus_streak", 0)),
             "break_window_minutes": int(settings["break_window_minutes"]),
+            "daily_bonus_roll_cap": daily_bonus_cap,
+            "daily_bonus_rolls_used": daily_bonus_used,
+            "daily_bonus_rolls_left": max(0, daily_bonus_cap - daily_bonus_used),
             "last_completed_at": last_completed_at,
             "chain_started_at": int(focus.get("chain_started_at", 0)),
             "deadline_at": deadline_at,
@@ -1007,8 +1087,21 @@ class CaseSimulator:
         chain_started_at = int(focus.get("chain_started_at", 0)) if continued_chain else 0
         if chain_started_at <= 0:
             chain_started_at = started_at or now
-        chain_bonus_rolls = self._chain_bonus_rolls(chain_count, chain_settings)
-        chain_luck_rolls = self._chain_luck_rolls(chain_count, chain_settings)
+        raw_chain_bonus_rolls = self._chain_bonus_rolls(chain_count, chain_settings)
+        raw_chain_luck_rolls = self._chain_luck_rolls(chain_count, chain_settings)
+
+        today = self._today_key(now)
+        today_row = self._today_focus_row(today)
+        reward_limits = self._apply_focus_chain_limits(
+            raw_chain_bonus_rolls,
+            raw_chain_luck_rolls,
+            duration_minutes,
+            today_row,
+            chain_settings,
+        )
+        chain_bonus_rolls = reward_limits["chain_bonus_rolls"]
+        chain_luck_rolls = reward_limits["chain_luck_rolls"]
+        length_bonus_rolls = reward_limits["length_bonus_rolls"]
 
         focus["active_session"] = None
         focus["focus_streak"] = chain_count
@@ -1019,10 +1112,15 @@ class CaseSimulator:
         focus["last_completed_at"] = now
         focus["chain_started_at"] = chain_started_at
 
-        today = self._today_key(now)
-        today_row = self._today_focus_row(today)
         today_row["minutes"] = int(today_row.get("minutes", 0)) + duration_minutes
         today_row["sessions"] = int(today_row.get("sessions", 0)) + 1
+        if reward_limits["short_session"]:
+            today_row["short_sessions"] = int(today_row.get("short_sessions", 0)) + 1
+        else:
+            today_row.setdefault("short_sessions", int(today_row.get("short_sessions", 0)))
+        today_row["chain_bonus_rolls"] = (
+            int(today_row.get("chain_bonus_rolls", 0)) + chain_bonus_rolls
+        )
 
         stats = self.data.setdefault("stats", {})
         stats["total_focus_minutes"] = int(stats.get("total_focus_minutes", 0)) + duration_minutes
@@ -1039,6 +1137,7 @@ class CaseSimulator:
             + quest_bonus_rolls
             + (1 if long_break_suggested else 0)
             + chain_bonus_rolls
+            + length_bonus_rolls
         )
 
         session_record = {
@@ -1050,7 +1149,11 @@ class CaseSimulator:
             "reward_rolls": reward_rolls,
             "chain_count": chain_count,
             "chain_bonus_rolls": chain_bonus_rolls,
+            "chain_bonus_rolls_raw": raw_chain_bonus_rolls,
             "chain_luck_rolls": chain_luck_rolls,
+            "chain_luck_rolls_raw": raw_chain_luck_rolls,
+            "length_bonus_rolls": length_bonus_rolls,
+            "short_session": reward_limits["short_session"],
         }
         focus.setdefault("completed_sessions", []).insert(0, session_record)
         focus["completed_sessions"] = focus["completed_sessions"][:200]
@@ -1078,7 +1181,27 @@ class CaseSimulator:
                 "next_deadline_at": now
                 + int(chain_settings["break_window_minutes"]) * 60,
                 "bonus_rolls": chain_bonus_rolls,
+                "raw_bonus_rolls": raw_chain_bonus_rolls,
                 "luck_rolls": chain_luck_rolls,
+                "raw_luck_rolls": raw_chain_luck_rolls,
+            },
+            "anti_farm": {
+                "short_session": reward_limits["short_session"],
+                "short_sessions_today": int(today_row.get("short_sessions", 0)),
+                "short_session_limit": int(chain_settings["short_session_daily_limit"]),
+                "short_session_minutes": int(chain_settings["short_session_minutes"]),
+                "short_session_multiplier": reward_limits["short_session_multiplier"],
+                "daily_chain_bonus_cap": reward_limits["daily_chain_bonus_cap"],
+                "daily_chain_bonus_used": int(today_row.get("chain_bonus_rolls", 0)),
+                "daily_chain_bonus_left": max(
+                    0,
+                    int(chain_settings["daily_chain_bonus_roll_cap"])
+                    - int(today_row.get("chain_bonus_rolls", 0)),
+                ),
+                "daily_cap_hit": reward_limits["daily_cap_hit"],
+                "length_bonus_rolls": length_bonus_rolls,
+                "scaled_chain_bonus_rolls": reward_limits["scaled_chain_bonus_rolls"],
+                "scaled_chain_luck_rolls": reward_limits["scaled_chain_luck_rolls"],
             },
         }
         self._append_history("complete_focus_session", metadata)
