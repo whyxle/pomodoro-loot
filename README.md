@@ -1,20 +1,20 @@
 # Pomodoro Loot
 
-Desktop-приложение на Python + pywebview для геймифицированных фокус-сессий.
+A Python + pywebview desktop app for gamified focus sessions.
 
-Пользователь запускает честный pomodoro-таймер, завершает учебную сессию и получает лут. Предметы, редкости, коллекции и визуальные эффекты настраиваются локально, поэтому приложение не привязано к одному сеттингу.
+Start an honest pomodoro timer, finish a study session, and receive loot afterward. Items, rarities, collections, and drop visuals are configured locally, so the app is not tied to a single setting.
 
-## Основные механики
+## Core Mechanics
 
-- Лут выдается только после завершения фокус-сессии.
-- XP считается от минут фокуса.
-- Серии завершенных сессий дают мягкий бонус к удаче награды.
-- Ежедневные цели на 1 сессию, 60 минут и 120 минут дают бонусные награды один раз в день.
-- Каждая 4-я завершенная сессия предлагает длинный перерыв и дает дополнительный reward roll.
-- Коллекция предметов хранится отдельно от инвентаря.
-- Пресеты экспортируют только каталог предметов, редкости и настройки дропа, без прогресса пользователя.
+- Loot is granted only after a focus session is completed.
+- XP is based on focused minutes.
+- Completion streaks give a soft luck bonus to future rewards.
+- Daily goals for 1 session, 60 minutes, and 120 minutes grant bonus rewards once per day.
+- Every 4th completed session suggests a long break and adds an extra reward roll.
+- The item collection is stored separately from the inventory.
+- Presets export only the item catalog, rarities, and drop settings, without user progress.
 
-## Установка
+## Installation
 
 ```bash
 python -m venv .venv
@@ -22,27 +22,27 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Запуск
+## Run
 
 ```bash
 python app.py
 ```
 
-## Данные и пресеты
+## Data And Presets
 
-Текущие пользовательские JSON-файлы (`case_*.json`) считаются локальными данными и игнорируются git. Path of Exile-набор сохранен как локальный пресет:
+Current user JSON files (`case_*.json`) are treated as local data and ignored by git. The Path of Exile item set is saved as a local preset:
 
 ```text
 local_presets/path_of_exile.json
 ```
 
-Его можно импортировать через вкладку `Пресеты`, если хочется оставить PoE-тему в своей локальной игре.
+Import it from the `Presets` tab if you want to keep the PoE theme in your local game.
 
-## Архитектура
+## Architecture
 
-- `simcase/domain/` - модели, дефолты, нормализация и чистые расчеты.
-- `simcase/application/` - сценарии приложения и pomodoro reward loop.
-- `simcase/infrastructure/` - файловое JSON-хранилище.
-- `simcase/presentation/` - pywebview API и окно приложения.
-- `simcase/web/` - HTML, CSS и JavaScript интерфейса.
-- `tests/` - регрессионные тесты.
+- `simcase/domain/` - models, defaults, normalization, and pure calculations.
+- `simcase/application/` - app use cases and the pomodoro reward loop.
+- `simcase/infrastructure/` - file-based JSON storage.
+- `simcase/presentation/` - pywebview API and app window.
+- `simcase/web/` - HTML, CSS, and JavaScript UI.
+- `tests/` - regression tests.
