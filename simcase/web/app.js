@@ -3,6 +3,7 @@ let autoOpenTimerId = null;
 let autoOpenBusy = false;
 let autoOpenStartInventoryByItem = {};
 let focusTimerId = null;
+let focusResetTimerId = null;
 let focusCompleting = false;
 let activeTabName = 'open';
 let activeSettingsPane = 'general';
@@ -17,6 +18,13 @@ const DROP_EVENT_TYPES = [
   ['abyss', 'Редкий прорыв'],
   ['mirror_altar', 'Дубликат'],
 ];
+const DIFFICULTY_PROFILES = {
+  1: { label: 'Разминка', bonusRolls: 0, luckRolls: 0, tone: 'Легкий вход' },
+  2: { label: 'Обычная', bonusRolls: 0, luckRolls: 0, tone: 'Ровная работа' },
+  3: { label: 'Сложная', bonusRolls: 1, luckRolls: 0, tone: 'Больше отдачи' },
+  4: { label: 'Элитная', bonusRolls: 2, luckRolls: 1, tone: 'Высокая ставка' },
+  5: { label: 'Босс', bonusRolls: 4, luckRolls: 2, tone: 'Максимальный контракт' },
+};
 
 function escapeHtml(value) {
   const raw = `${value ?? ''}`;
@@ -175,11 +183,14 @@ function applyTheme(theme) {
 }
 
 function showSettingsPane(name) {
-  activeSettingsPane = name === 'drop-bg' ? 'drop-bg' : 'general';
-  document.getElementById('settings-pane-general').classList.toggle('hidden', activeSettingsPane !== 'general');
-  document.getElementById('settings-pane-drop-bg').classList.toggle('hidden', activeSettingsPane !== 'drop-bg');
-  document.getElementById('settings-subtab-general').classList.toggle('primary', activeSettingsPane === 'general');
-  document.getElementById('settings-subtab-drop-bg').classList.toggle('primary', activeSettingsPane === 'drop-bg');
+  const panes = ['general', 'focus', 'drop', 'drop-bg'];
+  activeSettingsPane = panes.includes(name) ? name : 'general';
+  for (const pane of panes) {
+    const paneEl = document.getElementById(`settings-pane-${pane}`);
+    const tabEl = document.getElementById(`settings-subtab-${pane}`);
+    if (paneEl) paneEl.classList.toggle('hidden', activeSettingsPane !== pane);
+    if (tabEl) tabEl.classList.toggle('primary', activeSettingsPane === pane);
+  }
 }
 
 function updateDropBackgroundPreview() {
@@ -265,6 +276,86 @@ function formatChainWindow(totalSeconds) {
   return `${hours} ч ${String(minutes).padStart(2, '0')} мин`;
 }
 
+function difficultyProfile(level) {
+  const safeLevel = Math.min(5, Math.max(1, parseInt(level || '2', 10) || 2));
+  return { level: safeLevel, ...DIFFICULTY_PROFILES[safeLevel] };
+}
+
+function renderDifficultyContract() {
+  const input = document.getElementById('focus-difficulty');
+  const label = document.getElementById('difficulty-label');
+  const preview = document.getElementById('difficulty-preview');
+  if (!input || !label || !preview) return;
+  const profile = difficultyProfile(input.value);
+  input.value = profile.level;
+  label.textContent = profile.label;
+  const rewardParts = [];
+  if (profile.bonusRolls > 0) rewardParts.push(`+${profile.bonusRolls} ролл.`);
+  if (profile.luckRolls > 0) rewardParts.push(`удача +${profile.luckRolls}`);
+  preview.textContent = rewardParts.length
+    ? `${profile.tone}: ${rewardParts.join(' · ')}`
+    : profile.tone;
+  for (const button of document.querySelectorAll('[data-difficulty]')) {
+    button.classList.toggle(
+      'active',
+      Number(button.dataset.difficulty) === profile.level,
+    );
+  }
+}
+
+function setDifficultyLevel(level) {
+  const input = document.getElementById('focus-difficulty');
+  if (!input || input.disabled) return;
+  input.value = difficultyProfile(level).level;
+  renderDifficultyContract();
+}
+
+function secondsUntilEpoch(epochSeconds) {
+  const epoch = Number(epochSeconds || 0);
+  if (!epoch) return 0;
+  return Math.max(0, epoch - Date.now() / 1000);
+}
+
+function renderFocusResetTimers() {
+  if (!state || !state.focus) return;
+  const focus = state.focus || {};
+  const chain = focus.chain || {};
+  const dailyEl = document.getElementById('focus-daily-reset');
+  const chainEl = document.getElementById('focus-chain-reset');
+  if (dailyEl) {
+    dailyEl.textContent = focus.daily_reset_at
+      ? formatChainWindow(secondsUntilEpoch(focus.daily_reset_at))
+      : '—';
+  }
+  if (chainEl) {
+    const currentChain = Number(chain.current ?? focus.focus_streak ?? 0);
+    if (!currentChain) {
+      chainEl.textContent = 'нет цепочки';
+    } else if (focus.active_session && chain.continues) {
+      chainEl.textContent = 'удержана';
+    } else if (chain.deadline_at) {
+      chainEl.textContent = formatChainWindow(secondsUntilEpoch(chain.deadline_at));
+    } else {
+      chainEl.textContent = '—';
+    }
+  }
+}
+
+function renderActivityCalendar() {
+  const calendar = document.getElementById('activity-calendar');
+  const total = document.getElementById('activity-total');
+  if (!calendar || !state || !state.focus) return;
+  const days = state.focus.activity_calendar || [];
+  const recentMinutes = days.reduce((sum, day) => sum + Number(day.minutes || 0), 0);
+  if (total) total.textContent = `${recentMinutes.toLocaleString('ru-RU')}м`;
+  calendar.innerHTML = days.map((day) => {
+    const minutes = Number(day.minutes || 0);
+    const sessions = Number(day.sessions || 0);
+    const title = `${day.date}: ${minutes}м, ${sessions} сесс.`;
+    return `<span class="activity-day" data-level="${Number(day.intensity || 0)}" title="${escapeHtml(title)}"></span>`;
+  }).join('');
+}
+
 function activeFocusSession() {
   return state && state.focus ? state.focus.active_session || null : null;
 }
@@ -309,6 +400,7 @@ function updateFocusTimer() {
   if (remaining <= 0 && !focusCompleting) {
     completeFocusSession();
   }
+  renderFocusResetTimers();
 }
 
 function renderFocus() {
@@ -318,6 +410,7 @@ function renderFocus() {
   const cancelButton = document.getElementById('focus-cancel');
   const taskInput = document.getElementById('focus-task');
   const durationInput = document.getElementById('focus-duration');
+  const difficultyInput = document.getElementById('focus-difficulty');
   const todayTotal = document.getElementById('focus-today-total');
   const questsEl = document.getElementById('focus-quests');
   const historyEl = document.getElementById('focus-history');
@@ -334,9 +427,11 @@ function renderFocus() {
   cancelButton.disabled = !running;
   taskInput.disabled = running;
   durationInput.disabled = running;
+  if (difficultyInput) difficultyInput.disabled = running;
   if (session) {
     taskInput.value = session.task_title || '';
     durationInput.value = session.duration_minutes || 25;
+    if (difficultyInput) difficultyInput.value = session.difficulty_level || 2;
     if (summaryEl) summaryEl.textContent = `Цепочка: ${Number(focus.focus_streak || 0)}`;
     if (focusTimerId === null) {
       focusTimerId = setInterval(updateFocusTimer, 500);
@@ -388,11 +483,14 @@ function renderFocus() {
     historyEl.innerHTML = sessions.map((row) => `
       <div class="history-row">
         <span>${escapeHtml(row.task_title || 'Фокус-сессия')}</span>
-        <b>${Number(row.duration_minutes || 0)}м${row.chain_count ? ` · x${Number(row.chain_count)}` : ''}</b>
+        <b>${Number(row.duration_minutes || 0)}м · ${escapeHtml(difficultyProfile(row.difficulty_level || 2).label)}${row.chain_count ? ` · x${Number(row.chain_count)}` : ''}</b>
       </div>
     `).join('') || '<small>Здесь появятся завершенные сессии</small>';
   }
 
+  renderDifficultyContract();
+  renderFocusResetTimers();
+  renderActivityCalendar();
   updateFocusTimer();
 }
 
@@ -1022,11 +1120,18 @@ function renderFocusRewardSummary(res, drops) {
   const hiddenQty = Math.max(0, parseInt(res.hidden_results_count || 0, 10) || 0);
   const totalQty = visibleQty + hiddenQty;
   const session = reward.session || {};
+  const difficulty = difficultyProfile(reward.difficulty_level || session.difficulty_level || 2);
   const quests = reward.claimed_quests || [];
   const chain = reward.chain || {};
   const antiFarm = reward.anti_farm || {};
   const notes = [];
   if (quests.length) notes.push(`цели дня: ${quests.length}`);
+  if (reward.difficulty_bonus_rolls > 0 || reward.difficulty_luck_rolls > 0) {
+    const diffBits = [];
+    if (reward.difficulty_bonus_rolls > 0) diffBits.push(`+${Number(reward.difficulty_bonus_rolls)} ролл.`);
+    if (reward.difficulty_luck_rolls > 0) diffBits.push(`удача +${Number(reward.difficulty_luck_rolls)}`);
+    notes.push(`${difficulty.label}: ${diffBits.join(' · ')}`);
+  }
   if (reward.long_break_suggested) notes.push('длинный перерыв');
   if (chain.count > 1) notes.push(`цепочка x${Number(chain.count)}`);
   if (chain.bonus_rolls > 0) notes.push(`цепь +${Number(chain.bonus_rolls)} ролл.`);
@@ -1042,7 +1147,7 @@ function renderFocusRewardSummary(res, drops) {
   }
   return `
     <div class="drop-summary">
-      <span><strong>${Number(session.duration_minutes || 0)}м</strong> фокуса завершено</span>
+      <span><strong>${Number(session.duration_minutes || 0)}м</strong> фокуса · ${escapeHtml(difficulty.label)}</span>
       <small>${totalQty ? `${totalQty} предметов` : 'каталог предметов пуст'}${notes.length ? ` · ${notes.join(' · ')}` : ''}</small>
     </div>
   `;
@@ -1091,9 +1196,11 @@ async function startFocusSession() {
     return;
   }
   const taskTitle = document.getElementById('focus-task').value || '';
+  const difficulty = difficultyProfile(document.getElementById('focus-difficulty')?.value || 2);
   const res = await api('start_focus_session', {
     duration_minutes: duration,
     task_title: taskTitle,
+    difficulty_level: difficulty.level,
   });
   if (res && res.ok) {
     document.getElementById('open-results').innerHTML = `
@@ -1483,6 +1590,13 @@ window.addEventListener('pywebviewready', async () => {
   const brightnessInput = document.getElementById('set-drop-bg-brightness');
   if (brightnessInput) {
     brightnessInput.addEventListener('input', updateDropBackgroundPreview);
+  }
+  const difficultyInput = document.getElementById('focus-difficulty');
+  if (difficultyInput) {
+    difficultyInput.addEventListener('input', renderDifficultyContract);
+  }
+  if (focusResetTimerId === null) {
+    focusResetTimerId = setInterval(renderFocusResetTimers, 1000);
   }
   updateAutoOpenUi();
   renderFocus();

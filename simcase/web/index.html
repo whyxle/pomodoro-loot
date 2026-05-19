@@ -52,6 +52,22 @@
         <button class="primary" id="focus-complete" onclick="completeFocusSession()" disabled>Забрать награду</button>
       </div>
 
+      <div class="difficulty-contract">
+        <div class="difficulty-head">
+          <small>Сложность задачи</small>
+          <strong id="difficulty-label">Обычная</strong>
+        </div>
+        <input id="focus-difficulty" type="range" min="1" max="5" step="1" value="2" oninput="renderDifficultyContract()">
+        <div class="difficulty-segments">
+          <button data-difficulty="1" onclick="setDifficultyLevel(1)">Разминка</button>
+          <button data-difficulty="2" onclick="setDifficultyLevel(2)">Обычная</button>
+          <button data-difficulty="3" onclick="setDifficultyLevel(3)">Сложная</button>
+          <button data-difficulty="4" onclick="setDifficultyLevel(4)">Элитная</button>
+          <button data-difficulty="5" onclick="setDifficultyLevel(5)">Босс</button>
+        </div>
+        <small id="difficulty-preview">Ровная работа</small>
+      </div>
+
       <div class="focus-timer-panel">
         <div>
           <small id="focus-status">Сессия не активна</small>
@@ -97,6 +113,24 @@
           <strong id="focus-today-total">0м</strong>
         </div>
         <div id="focus-quests" class="quest-list"></div>
+      </section>
+
+      <section class="progress-panel">
+        <div class="panel-heading">
+          <small>Сбросы</small>
+        </div>
+        <div class="reset-list">
+          <div><span>Задания</span><b id="focus-daily-reset">—</b></div>
+          <div><span>Цепочка</span><b id="focus-chain-reset">—</b></div>
+        </div>
+      </section>
+
+      <section class="progress-panel activity-panel">
+        <div class="panel-heading">
+          <small>Активность</small>
+          <strong id="activity-total">0м</strong>
+        </div>
+        <div id="activity-calendar" class="activity-calendar"></div>
       </section>
 
       <section class="progress-panel">
@@ -230,12 +264,32 @@
     <h3>Настройки</h3>
     <div class="settings-subtabs">
       <button id="settings-subtab-general" onclick="showSettingsPane('general')">Общие</button>
+      <button id="settings-subtab-focus" onclick="showSettingsPane('focus')">Фокус</button>
+      <button id="settings-subtab-drop" onclick="showSettingsPane('drop')">Дроп</button>
       <button id="settings-subtab-drop-bg" onclick="showSettingsPane('drop-bg')">Фон дропа</button>
     </div>
     <div id="settings-pane-general" class="settings-pane">
-      <div class="row"><label>roll_min <input id="set-roll-min" type="number"></label><label>roll_max <input id="set-roll-max" type="number"></label><label>Цена старого открытия <input id="set-open-price" type="number"></label></div>
+      <h4>Система опыта</h4>
+      <div class="row">
+        <label>Базовый XP на уровень <input id="set-base-xp" type="number" min="1"></label>
+        <label>Рост XP <input id="set-xp-growth" type="number" step="0.01" min="1.01"></label>
+      </div>
       <h4>Внешний вид</h4>
-      <div class="row"><label>Тема <select id="set-theme"><option value="dark">Темная</option><option value="light">Светлая</option></select></label></div>
+      <div class="row">
+        <label>Тема <select id="set-theme"><option value="dark">Темная</option><option value="light">Светлая</option></select></label>
+      </div>
+      <h4>Legacy</h4>
+      <div class="row">
+        <label>roll_min <input id="set-roll-min" type="number"></label>
+        <label>roll_max <input id="set-roll-max" type="number"></label>
+        <label>Цена старого открытия <input id="set-open-price" type="number"></label>
+      </div>
+      <h4>Редкости</h4>
+      <div class="row" style="margin-top:8px">
+        <button onclick="normalizeRangesWithConfirm()">Выставить одинаковые веса</button>
+      </div>
+    </div>
+    <div id="settings-pane-focus" class="settings-pane hidden">
       <h4>Цепочка фокуса</h4>
       <small>Сессии считаются подряд, если следующая началась до окончания окна после предыдущей.</small>
       <div class="row" style="margin-top:8px">
@@ -259,6 +313,13 @@
         <label>Глубокий блок, мин <input id="set-chain-deep-minutes" type="number" min="1" max="180"></label>
         <label>Бонус глубокого блока <input id="set-chain-deep-bonus" type="number" min="0" max="20"></label>
       </div>
+      <h4>Сложность</h4>
+      <small>Нейтральная сложность по умолчанию: Обычная. Более высокий контракт добавляет роллы и удачу.</small>
+      <div class="difficulty-reference">
+        <span>Разминка</span><span>Обычная</span><span>Сложная +1</span><span>Элитная +2/+1</span><span>Босс +4/+2</span>
+      </div>
+    </div>
+    <div id="settings-pane-drop" class="settings-pane hidden">
       <h4>Появление предметов</h4>
       <div class="row">
         <label><input id="set-appearance-effect-enabled" type="checkbox"> Эффект появления карточек</label>
@@ -269,12 +330,6 @@
       <table id="drop-events-table" style="margin-top:8px"></table>
       <div class="row" style="margin-top:8px">
         <button onclick="addDropEventRow()">Добавить событие</button>
-      </div>
-      <h4>Система опыта</h4>
-      <div class="row"><label>Базовый XP на уровень <input id="set-base-xp" type="number" min="1"></label><label>Рост XP <input id="set-xp-growth" type="number" step="0.01" min="1.01"></label></div>
-      <h4>Редкости</h4>
-      <div class="row" style="margin-top:8px">
-        <button onclick="normalizeRangesWithConfirm()">Выставить одинаковые веса</button>
       </div>
     </div>
     <div id="settings-pane-drop-bg" class="settings-pane hidden">

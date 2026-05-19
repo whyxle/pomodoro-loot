@@ -8,10 +8,13 @@ Start an honest pomodoro timer, finish a study session, and receive loot afterwa
 
 - Loot is granted only after a focus session is completed.
 - XP is based on focused minutes.
+- Each session has a difficulty contract from Warmup to Boss, adding explicit bonus rolls and luck for harder tasks.
 - Focus chains continue when the next session starts within the configurable break window, giving cumulative bonus rolls and luck.
 - Anti-farm rules cap daily chain bonus rolls, reduce rewards from repeated short sessions, and add extra rolls for long focus blocks.
 - Daily goals for 1 session, 60 minutes, and 120 minutes grant bonus rewards once per day.
 - Every 4th completed session suggests a long break and adds an extra reward roll.
+- Reset timers show when daily goals and the current focus chain expire.
+- A GitHub-style activity calendar visualizes the last 53 weeks of focused minutes.
 - The item collection is stored separately from the inventory.
 - Presets export only the item catalog, rarities, and drop settings, without user progress.
 
