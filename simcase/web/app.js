@@ -23,7 +23,7 @@ const DIFFICULTY_PROFILES = {
   2: { label: 'Обычная', bonusRolls: 0, luckRolls: 0, tone: 'Ровная работа' },
   3: { label: 'Сложная', bonusRolls: 1, luckRolls: 0, tone: 'Больше отдачи' },
   4: { label: 'Элитная', bonusRolls: 2, luckRolls: 1, tone: 'Высокая ставка' },
-  5: { label: 'Босс', bonusRolls: 4, luckRolls: 2, tone: 'Максимальный контракт' },
+  5: { label: 'Бриллиантовая', bonusRolls: 4, luckRolls: 2, tone: 'Максимальный контракт' },
 };
 
 function escapeHtml(value) {
@@ -347,11 +347,14 @@ function renderActivityCalendar() {
   if (!calendar || !state || !state.focus) return;
   const days = state.focus.activity_calendar || [];
   const recentMinutes = days.reduce((sum, day) => sum + Number(day.minutes || 0), 0);
-  if (total) total.textContent = `${recentMinutes.toLocaleString('ru-RU')}м`;
+  const peakMinutes = Number(state.focus.activity_peak_minutes || 0);
+  if (total) {
+    total.textContent = `${recentMinutes.toLocaleString('ru-RU')}м · Пик: ${peakMinutes.toLocaleString('ru-RU')}м`;
+  }
   calendar.innerHTML = days.map((day) => {
     const minutes = Number(day.minutes || 0);
     const sessions = Number(day.sessions || 0);
-    const title = `${day.date}: ${minutes}м, ${sessions} сесс.`;
+    const title = `${day.date}: ${minutes}м, ${sessions} сесс. · Пик: ${peakMinutes}м`;
     return `<span class="activity-day" data-level="${Number(day.intensity || 0)}" title="${escapeHtml(title)}"></span>`;
   }).join('');
 }

@@ -97,6 +97,11 @@ class SimulatorRegressionTests(unittest.TestCase):
         self.assertIn('src="app.js"', HTML)
         self.assertNotIn("<style>", HTML)
         self.assertNotIn("<script>\n", HTML)
+        ui_text = INDEX_HTML_PATH.read_text(encoding="utf-8") + (
+            UI_DIR / "app.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Бриллиантовая", ui_text)
+        self.assertNotIn("Босс", ui_text)
 
     def test_update_settings_normalizes_payload_without_changing_contract(self):
         simulator = self.create_simulator()
@@ -264,7 +269,7 @@ class SimulatorRegressionTests(unittest.TestCase):
         self.assertEqual(1, low["session"]["difficulty_level"])
         self.assertEqual(1, low["state"]["focus"]["active_session"]["difficulty_level"])
 
-    def test_boss_difficulty_completion_adds_bonus_rolls_and_luck(self):
+    def test_diamond_difficulty_completion_adds_bonus_rolls_and_luck(self):
         clock = MutableClock(1500.0)
         temp_dir = TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -341,7 +346,7 @@ class SimulatorRegressionTests(unittest.TestCase):
             state["focus"]["daily_reset_seconds_left"],
         )
 
-    def test_focus_activity_calendar_uses_daily_focus_intensity(self):
+    def test_focus_activity_calendar_uses_adaptive_all_time_peak_intensity(self):
         now = time.mktime((2026, 5, 19, 12, 0, 0, -1, -1, -1))
         temp_dir = TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -351,22 +356,60 @@ class SimulatorRegressionTests(unittest.TestCase):
         )
         simulator.data["focus"]["daily_focus"] = {
             "2026-05-15": {"minutes": 0, "sessions": 0},
-            "2026-05-16": {"minutes": 24, "sessions": 1},
-            "2026-05-17": {"minutes": 25, "sessions": 2},
-            "2026-05-18": {"minutes": 60, "sessions": 3},
-            "2026-05-19": {"minutes": 120, "sessions": 4},
+            "2026-05-16": {"minutes": 1, "sessions": 1},
+            "2026-05-17": {"minutes": 8, "sessions": 2},
+            "2026-05-18": {"minutes": 16, "sessions": 3},
+            "2026-05-19": {"minutes": 30, "sessions": 4},
         }
 
-        calendar = simulator.state()["focus"]["activity_calendar"]
+        state = simulator.state()
+        calendar = state["focus"]["activity_calendar"]
         by_date = {day["date"]: day for day in calendar}
 
         self.assertEqual(53 * 7, len(calendar))
+        self.assertEqual(30, state["focus"]["activity_peak_minutes"])
         self.assertEqual(0, by_date["2026-05-15"]["intensity"])
         self.assertEqual(1, by_date["2026-05-16"]["intensity"])
         self.assertEqual(2, by_date["2026-05-17"]["intensity"])
         self.assertEqual(3, by_date["2026-05-18"]["intensity"])
         self.assertEqual(4, by_date["2026-05-19"]["intensity"])
         self.assertEqual(4, by_date["2026-05-19"]["sessions"])
+
+    def test_focus_activity_calendar_has_no_intensity_without_activity(self):
+        now = time.mktime((2026, 5, 19, 12, 0, 0, -1, -1, -1))
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            time_provider=MutableClock(now),
+        )
+
+        state = simulator.state()
+
+        self.assertEqual(0, state["focus"]["activity_peak_minutes"])
+        self.assertTrue(
+            all(day["intensity"] == 0 for day in state["focus"]["activity_calendar"])
+        )
+
+    def test_focus_activity_calendar_uses_peak_outside_visible_range(self):
+        now = time.mktime((2026, 5, 19, 12, 0, 0, -1, -1, -1))
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            time_provider=MutableClock(now),
+        )
+        simulator.data["focus"]["daily_focus"] = {
+            "2025-01-01": {"minutes": 200, "sessions": 5},
+            "2026-05-19": {"minutes": 100, "sessions": 2},
+        }
+
+        state = simulator.state()
+        by_date = {day["date"]: day for day in state["focus"]["activity_calendar"]}
+
+        self.assertEqual(200, state["focus"]["activity_peak_minutes"])
+        self.assertNotIn("2025-01-01", by_date)
+        self.assertEqual(2, by_date["2026-05-19"]["intensity"])
 
     def test_cancel_focus_session_breaks_streak_without_reward(self):
         clock = MutableClock(2000.0)

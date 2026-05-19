@@ -208,22 +208,38 @@ class CaseSimulator:
             )
         )
 
-    def _activity_intensity(self, minutes: int) -> int:
-        minutes = max(0, int(minutes))
-        if minutes >= 120:
-            return 4
-        if minutes >= 60:
-            return 3
-        if minutes >= 25:
-            return 2
-        if minutes > 0:
-            return 1
-        return 0
+    def _activity_peak_minutes(self, daily_focus: Optional[dict] = None) -> int:
+        rows = daily_focus if isinstance(daily_focus, dict) else {}
+        peak = 0
+        for row in rows.values():
+            if not isinstance(row, dict):
+                continue
+            peak = max(
+                peak,
+                int(max(0, self._sanitize_positive_float(row.get("minutes", 0), 0))),
+            )
+        return peak
 
-    def _activity_calendar(self, now: Optional[int] = None) -> list[dict]:
+    def _activity_intensity(self, minutes: int, peak_minutes: int) -> int:
+        minutes = max(0, int(minutes))
+        peak_minutes = max(0, int(peak_minutes))
+        if minutes <= 0 or peak_minutes <= 0:
+            return 0
+        return max(1, min(4, ((minutes * 4) + peak_minutes - 1) // peak_minutes))
+
+    def _activity_calendar(
+        self,
+        now: Optional[int] = None,
+        peak_minutes: Optional[int] = None,
+    ) -> list[dict]:
         now = int(self._time_provider()) if now is None else int(now)
         current_date = datetime.fromtimestamp(max(0, now)).date()
         daily_focus = self.data.setdefault("focus", {}).setdefault("daily_focus", {})
+        activity_peak = (
+            self._activity_peak_minutes(daily_focus)
+            if peak_minutes is None
+            else max(0, int(peak_minutes))
+        )
         days = []
         for offset in range((53 * 7) - 1, -1, -1):
             date_key = (current_date - timedelta(days=offset)).isoformat()
@@ -235,7 +251,7 @@ class CaseSimulator:
                     "date": date_key,
                     "minutes": minutes,
                     "sessions": sessions,
-                    "intensity": self._activity_intensity(minutes),
+                    "intensity": self._activity_intensity(minutes, activity_peak),
                 }
             )
         return days
@@ -498,13 +514,15 @@ class CaseSimulator:
         today = self._today_key()
         row = self._today_focus_row(today)
         daily_reset_at = self._next_local_midnight(now)
+        activity_peak = self._activity_peak_minutes(focus.get("daily_focus", {}))
         focus["today_minutes"] = int(row.get("minutes", 0))
         focus["today_sessions"] = int(row.get("sessions", 0))
         focus["daily_reset_at"] = daily_reset_at
         focus["daily_reset_seconds_left"] = max(0, daily_reset_at - now)
         focus["daily_quests"] = self._daily_quest_status(today)
         focus["chain"] = self._focus_chain_summary(focus, now)
-        focus["activity_calendar"] = self._activity_calendar(now)
+        focus["activity_peak_minutes"] = activity_peak
+        focus["activity_calendar"] = self._activity_calendar(now, activity_peak)
 
     def _rarity_map(self) -> Dict[str, dict]:
         return build_rarity_map(self.data["rarities"])
