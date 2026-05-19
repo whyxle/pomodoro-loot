@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import time
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -242,6 +243,130 @@ class SimulatorRegressionTests(unittest.TestCase):
         self.assertEqual(1, state["stats"]["total_focus_minutes"])
         self.assertEqual(1, state["level"]["xp"])
         self.assertEqual(2, state["inventory"]["focus_item"])
+
+    def test_start_focus_session_saves_and_clamps_difficulty(self):
+        simulator = self.create_simulator()
+
+        high = simulator.start_focus_session(
+            {"duration_minutes": 25, "difficulty_level": 99}
+        )
+
+        self.assertTrue(high["ok"])
+        self.assertEqual(5, high["session"]["difficulty_level"])
+        self.assertEqual(5, high["state"]["focus"]["active_session"]["difficulty_level"])
+
+        simulator.cancel_focus_session(high["session"]["id"])
+        low = simulator.start_focus_session(
+            {"duration_minutes": 25, "difficulty_level": -4}
+        )
+
+        self.assertTrue(low["ok"])
+        self.assertEqual(1, low["session"]["difficulty_level"])
+        self.assertEqual(1, low["state"]["focus"]["active_session"]["difficulty_level"])
+
+    def test_boss_difficulty_completion_adds_bonus_rolls_and_luck(self):
+        clock = MutableClock(1500.0)
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            rng=FlatRng(),
+            time_provider=clock,
+        )
+        rarity_id = simulator.data["rarities"][0]["id"]
+        simulator.data["items"] = [item_template("focus_item", rarity_id, 1)]
+
+        started = simulator.start_focus_session(
+            {"duration_minutes": 1, "difficulty_level": 5}
+        )
+        clock.now += 60
+        completed = simulator.complete_focus_session(started["session"]["id"])
+        reward = completed["focus_reward"]
+
+        self.assertTrue(completed["ok"])
+        self.assertEqual(5, reward["difficulty_level"])
+        self.assertEqual(4, reward["difficulty_bonus_rolls"])
+        self.assertEqual(2, reward["difficulty_luck_rolls"])
+        self.assertEqual(6, reward["reward_rolls"])
+        self.assertEqual(3, reward["reward_luck_rolls"])
+        self.assertEqual(5, reward["session"]["difficulty_level"])
+        self.assertEqual(
+            4,
+            completed["state"]["focus"]["completed_sessions"][0][
+                "difficulty_bonus_rolls"
+            ],
+        )
+
+    def test_legacy_focus_sessions_default_to_standard_difficulty(self):
+        simulator = self.create_simulator()
+        simulator.data["focus"]["active_session"] = {
+            "id": "legacy-active",
+            "task_title": "Legacy task",
+            "duration_minutes": 25,
+            "started_at": 100,
+            "ends_at": 1600,
+            "status": "active",
+        }
+        simulator.data["focus"]["completed_sessions"] = [
+            {
+                "id": "legacy-complete",
+                "task_title": "Legacy done",
+                "duration_minutes": 25,
+                "started_at": 10,
+                "completed_at": 1510,
+                "reward_rolls": 1,
+            }
+        ]
+
+        state = simulator.state()
+
+        self.assertEqual(2, state["focus"]["active_session"]["difficulty_level"])
+        self.assertEqual(2, state["focus"]["completed_sessions"][0]["difficulty_level"])
+
+    def test_focus_state_reports_next_local_midnight_reset(self):
+        now = time.mktime((2026, 5, 19, 10, 30, 0, -1, -1, -1))
+        expected_reset = int(time.mktime((2026, 5, 20, 0, 0, 0, -1, -1, -1)))
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            time_provider=MutableClock(now),
+        )
+
+        state = simulator.state()
+
+        self.assertEqual(expected_reset, state["focus"]["daily_reset_at"])
+        self.assertEqual(
+            expected_reset - int(now),
+            state["focus"]["daily_reset_seconds_left"],
+        )
+
+    def test_focus_activity_calendar_uses_daily_focus_intensity(self):
+        now = time.mktime((2026, 5, 19, 12, 0, 0, -1, -1, -1))
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        simulator = CaseSimulator(
+            str(Path(temp_dir.name) / "case_simulator_data.json"),
+            time_provider=MutableClock(now),
+        )
+        simulator.data["focus"]["daily_focus"] = {
+            "2026-05-15": {"minutes": 0, "sessions": 0},
+            "2026-05-16": {"minutes": 24, "sessions": 1},
+            "2026-05-17": {"minutes": 25, "sessions": 2},
+            "2026-05-18": {"minutes": 60, "sessions": 3},
+            "2026-05-19": {"minutes": 120, "sessions": 4},
+        }
+
+        calendar = simulator.state()["focus"]["activity_calendar"]
+        by_date = {day["date"]: day for day in calendar}
+
+        self.assertEqual(53 * 7, len(calendar))
+        self.assertEqual(0, by_date["2026-05-15"]["intensity"])
+        self.assertEqual(1, by_date["2026-05-16"]["intensity"])
+        self.assertEqual(2, by_date["2026-05-17"]["intensity"])
+        self.assertEqual(3, by_date["2026-05-18"]["intensity"])
+        self.assertEqual(4, by_date["2026-05-19"]["intensity"])
+        self.assertEqual(4, by_date["2026-05-19"]["sessions"])
 
     def test_cancel_focus_session_breaks_streak_without_reward(self):
         clock = MutableClock(2000.0)

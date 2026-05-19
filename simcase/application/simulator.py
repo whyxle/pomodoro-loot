@@ -6,6 +6,7 @@ import time
 import uuid
 from copy import deepcopy
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from ..domain.calculations import (
@@ -83,6 +84,14 @@ DAILY_FOCUS_QUESTS = (
 )
 
 CANCEL_CHAIN_GRACE_SECONDS = 120
+DEFAULT_DIFFICULTY_LEVEL = 2
+DIFFICULTY_REWARDS = {
+    1: {"bonus_rolls": 0, "luck_rolls": 0},
+    2: {"bonus_rolls": 0, "luck_rolls": 0},
+    3: {"bonus_rolls": 1, "luck_rolls": 0},
+    4: {"bonus_rolls": 2, "luck_rolls": 1},
+    5: {"bonus_rolls": 4, "luck_rolls": 2},
+}
 
 
 class CaseSimulator:
@@ -179,6 +188,57 @@ class CaseSimulator:
     def _today_key(self, timestamp: Optional[float] = None) -> str:
         current = self._time_provider() if timestamp is None else timestamp
         return time.strftime("%Y-%m-%d", time.localtime(current))
+
+    def _next_local_midnight(self, timestamp: Optional[float] = None) -> int:
+        current = self._time_provider() if timestamp is None else timestamp
+        next_day = time.localtime(current + 86400)
+        return int(
+            time.mktime(
+                (
+                    next_day.tm_year,
+                    next_day.tm_mon,
+                    next_day.tm_mday,
+                    0,
+                    0,
+                    0,
+                    -1,
+                    -1,
+                    next_day.tm_isdst,
+                )
+            )
+        )
+
+    def _activity_intensity(self, minutes: int) -> int:
+        minutes = max(0, int(minutes))
+        if minutes >= 120:
+            return 4
+        if minutes >= 60:
+            return 3
+        if minutes >= 25:
+            return 2
+        if minutes > 0:
+            return 1
+        return 0
+
+    def _activity_calendar(self, now: Optional[int] = None) -> list[dict]:
+        now = int(self._time_provider()) if now is None else int(now)
+        current_date = datetime.fromtimestamp(max(0, now)).date()
+        daily_focus = self.data.setdefault("focus", {}).setdefault("daily_focus", {})
+        days = []
+        for offset in range((53 * 7) - 1, -1, -1):
+            date_key = (current_date - timedelta(days=offset)).isoformat()
+            row = daily_focus.get(date_key, {})
+            minutes = int(row.get("minutes", 0)) if isinstance(row, dict) else 0
+            sessions = int(row.get("sessions", 0)) if isinstance(row, dict) else 0
+            days.append(
+                {
+                    "date": date_key,
+                    "minutes": minutes,
+                    "sessions": sessions,
+                    "intensity": self._activity_intensity(minutes),
+                }
+            )
+        return days
 
     def _focus_state(self) -> dict:
         focus = normalize_focus(self.data.get("focus"))
@@ -437,10 +497,14 @@ class CaseSimulator:
         self._sync_focus_chain_expiration(focus, now)
         today = self._today_key()
         row = self._today_focus_row(today)
+        daily_reset_at = self._next_local_midnight(now)
         focus["today_minutes"] = int(row.get("minutes", 0))
         focus["today_sessions"] = int(row.get("sessions", 0))
+        focus["daily_reset_at"] = daily_reset_at
+        focus["daily_reset_seconds_left"] = max(0, daily_reset_at - now)
         focus["daily_quests"] = self._daily_quest_status(today)
         focus["chain"] = self._focus_chain_summary(focus, now)
+        focus["activity_calendar"] = self._activity_calendar(now)
 
     def _rarity_map(self) -> Dict[str, dict]:
         return build_rarity_map(self.data["rarities"])
@@ -451,6 +515,23 @@ class CaseSimulator:
     @staticmethod
     def _sanitize_positive_float(value, default: float = 0.0) -> float:
         return sanitize_positive_float(value, default)
+
+    @staticmethod
+    def _normalize_difficulty_level(value) -> int:
+        try:
+            raw_value = int(value)
+        except (TypeError, ValueError):
+            raw_value = DEFAULT_DIFFICULTY_LEVEL
+        return max(1, min(5, raw_value))
+
+    def _difficulty_reward(self, difficulty_level: int) -> dict:
+        level = self._normalize_difficulty_level(difficulty_level)
+        reward = DIFFICULTY_REWARDS[level]
+        return {
+            "level": level,
+            "bonus_rolls": int(reward["bonus_rolls"]),
+            "luck_rolls": int(reward["luck_rolls"]),
+        }
 
     def _ensure_rarity_defaults(self, rarity: dict) -> None:
         ensure_rarity_defaults(rarity)
@@ -997,6 +1078,9 @@ class CaseSimulator:
         if not task_title:
             task_title = "Фокус-сессия"
         task_title = task_title[:120]
+        difficulty_level = self._normalize_difficulty_level(
+            payload.get("difficulty_level", DEFAULT_DIFFICULTY_LEVEL)
+        )
 
         started_at = int(self._time_provider())
         self._sync_focus_chain_expiration(focus, started_at)
@@ -1004,6 +1088,7 @@ class CaseSimulator:
             "id": self._id_factory(),
             "task_title": task_title,
             "duration_minutes": duration_minutes,
+            "difficulty_level": difficulty_level,
             "started_at": started_at,
             "ends_at": started_at + duration_minutes * 60,
             "status": "active",
@@ -1037,6 +1122,9 @@ class CaseSimulator:
                 "id": active.get("id"),
                 "task_title": active.get("task_title", ""),
                 "duration_minutes": active.get("duration_minutes", 0),
+                "difficulty_level": self._normalize_difficulty_level(
+                    active.get("difficulty_level", DEFAULT_DIFFICULTY_LEVEL)
+                ),
                 "cancelled_at": now,
                 "elapsed_seconds": elapsed_seconds,
                 "chain_preserved": chain_preserved,
@@ -1078,6 +1166,10 @@ class CaseSimulator:
 
         duration_minutes = int(max(1, active.get("duration_minutes", 1)))
         started_at = int(active.get("started_at", 0))
+        difficulty_level = self._normalize_difficulty_level(
+            active.get("difficulty_level", DEFAULT_DIFFICULTY_LEVEL)
+        )
+        difficulty_reward = self._difficulty_reward(difficulty_level)
         chain_settings = self._focus_chain_settings()
         continued_chain, chain_gap_seconds, chain_deadline_at = (
             self._session_continues_chain(focus, started_at, chain_settings)
@@ -1129,21 +1221,27 @@ class CaseSimulator:
         ) + 1
 
         claimed_quests, quest_bonus_rolls = self._claim_completed_daily_quests(today)
+        focus = self.data.setdefault("focus", {})
+        today_row = self._today_focus_row(today)
         completed_count = int(stats.get("completed_focus_sessions", 0))
         long_break_suggested = completed_count % 4 == 0
-        reward_luck_rolls = chain_luck_rolls
+        difficulty_bonus_rolls = int(difficulty_reward["bonus_rolls"])
+        difficulty_luck_rolls = int(difficulty_reward["luck_rolls"])
+        reward_luck_rolls = chain_luck_rolls + difficulty_luck_rolls
         reward_rolls = (
             1
             + quest_bonus_rolls
             + (1 if long_break_suggested else 0)
             + chain_bonus_rolls
             + length_bonus_rolls
+            + difficulty_bonus_rolls
         )
 
         session_record = {
             "id": active.get("id"),
             "task_title": active.get("task_title", "Фокус-сессия"),
             "duration_minutes": duration_minutes,
+            "difficulty_level": difficulty_level,
             "started_at": started_at,
             "completed_at": now,
             "reward_rolls": reward_rolls,
@@ -1153,6 +1251,8 @@ class CaseSimulator:
             "chain_luck_rolls": chain_luck_rolls,
             "chain_luck_rolls_raw": raw_chain_luck_rolls,
             "length_bonus_rolls": length_bonus_rolls,
+            "difficulty_bonus_rolls": difficulty_bonus_rolls,
+            "difficulty_luck_rolls": difficulty_luck_rolls,
             "short_session": reward_limits["short_session"],
         }
         focus.setdefault("completed_sessions", []).insert(0, session_record)
@@ -1169,6 +1269,9 @@ class CaseSimulator:
             "session": session_record,
             "reward_rolls": reward_rolls,
             "reward_luck_rolls": reward_luck_rolls,
+            "difficulty_level": difficulty_level,
+            "difficulty_bonus_rolls": difficulty_bonus_rolls,
+            "difficulty_luck_rolls": difficulty_luck_rolls,
             "claimed_quests": claimed_quests,
             "long_break_suggested": long_break_suggested,
             "chain": {

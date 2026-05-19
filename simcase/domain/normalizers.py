@@ -473,7 +473,36 @@ def normalize_stats(raw_stats) -> dict:
 def normalize_focus(raw_focus) -> dict:
     focus = raw_focus if isinstance(raw_focus, dict) else {}
     active = focus.get("active_session")
-    active_session = active if isinstance(active, dict) else None
+    active_session = None
+    if isinstance(active, dict):
+        active_id = str(active.get("id") or "").strip()
+        if active_id:
+            active_session = {
+                "id": active_id,
+                "task_title": str(active.get("task_title") or "Focus session"),
+                "duration_minutes": int(
+                    max(1, sanitize_positive_float(active.get("duration_minutes", 25), 25))
+                ),
+                "difficulty_level": int(
+                    min(
+                        5,
+                        max(
+                            1,
+                            sanitize_positive_float(
+                                active.get("difficulty_level", 2),
+                                2,
+                            ),
+                        ),
+                    )
+                ),
+                "started_at": int(
+                    max(0, sanitize_positive_float(active.get("started_at", 0), 0))
+                ),
+                "ends_at": int(
+                    max(0, sanitize_positive_float(active.get("ends_at", 0), 0))
+                ),
+                "status": str(active.get("status") or "active"),
+            }
 
     completed_sessions = []
     raw_completed = focus.get("completed_sessions", [])
@@ -494,6 +523,18 @@ def normalize_focus(raw_focus) -> dict:
                             sanitize_positive_float(
                                 session.get("duration_minutes", 1),
                                 1,
+                            ),
+                        )
+                    ),
+                    "difficulty_level": int(
+                        min(
+                            5,
+                            max(
+                                1,
+                                sanitize_positive_float(
+                                    session.get("difficulty_level", 2),
+                                    2,
+                                ),
                             ),
                         )
                     ),
@@ -527,6 +568,24 @@ def normalize_focus(raw_focus) -> dict:
                             sanitize_positive_float(
                                 session.get("chain_luck_rolls", 1),
                                 1,
+                            ),
+                        )
+                    ),
+                    "difficulty_bonus_rolls": int(
+                        max(
+                            0,
+                            sanitize_positive_float(
+                                session.get("difficulty_bonus_rolls", 0),
+                                0,
+                            ),
+                        )
+                    ),
+                    "difficulty_luck_rolls": int(
+                        max(
+                            0,
+                            sanitize_positive_float(
+                                session.get("difficulty_luck_rolls", 0),
+                                0,
                             ),
                         )
                     ),
